@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+/* `dark:` utilities follow the .dark class on <html> (set from each user's preference) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Nextenti brand — matched to the Nextenti ATS (primary #01637E dark teal, charcoal NT mark) */
+@theme {
+  --color-brand-50: #eef6f8;
+  --color-brand-100: #dcebf0;
+  --color-brand-200: #b9d7e1;
+  --color-brand-300: #86bccc;
+  --color-brand-400: #3f93ac;
+  --color-brand-500: #0b7593;
+  --color-brand-600: #01637e;
+  --color-brand-700: #024f65;
+  --color-brand-800: #053f51;
+  --color-brand-900: #062f3c;
+  --color-ink: #24272c;
+  --color-charcoal: #4d4e50;
+  --color-accent: #e0263a; /* the red underline in "Live Better" */
+  --color-surface: #fbfbfb;
+  --color-head: #ededed;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html, body { background: var(--color-surface); color: var(--color-ink); }
+
+/*
+ * Dark mode — the same teal brand on a charcoal base (the NT mark's colour family).
+ * Every page is built from these palette variables, so redefining them restyles
+ * all modules for every role at once. "white" becomes the card surface; text that
+ * must stay white on coloured buttons and badges is pinned below.
+ */
+.dark {
+  color-scheme: dark;
+  --color-surface: #0e1318;
+  --color-white: #161c23;
+  --color-head: #1d252e;
+  --color-ink: #e4e9ee;
+  --color-charcoal: #b6bec7;
+
+  --color-slate-50: #1a2129;
+  --color-slate-100: #212a33;
+  --color-slate-200: #2a343f;
+  --color-slate-300: #384350;
+  --color-slate-400: #6c7886;
+  --color-slate-500: #8b97a4;
+  --color-slate-600: #a4aeb9;
+  --color-slate-700: #c2cad3;
+  --color-slate-800: #dbe1e7;
+  --color-slate-900: #eef2f5;
+
+  /* brand: buttons stay solid teal; tints become deep teal, teal text becomes lighter */
+  --color-brand-50: #0d2830;
+  --color-brand-100: #11343f;
+  --color-brand-200: #1a4a59;
+  --color-brand-300: #2a6a7e;
+  --color-brand-400: #4aa3bd;
+  --color-brand-500: #1b87a6;
+  --color-brand-600: #0a7391;
+  --color-brand-700: #3aa3c2;
+  --color-brand-800: #7cc6db;
+  --color-brand-900: #a9dbe8;
+  --color-accent: #f0525f;
+
+  --color-red-50: #3a1519;
+  --color-red-200: #5c232a;
+  --color-red-500: #f05252;
+  --color-red-600: #f87171;
+  --color-red-700: #fca5a5;
+  --color-emerald-50: #0c2a20;
+  --color-emerald-200: #144d3a;
+  --color-emerald-300: #1f6b50;
+  --color-emerald-500: #34d399;
+  --color-emerald-700: #6ee7b7;
+  --color-amber-50: #33250b;
+  --color-amber-200: #5a4011;
+  --color-amber-300: #7a5816;
+  --color-amber-400: #fbbf24;
+  --color-amber-600: #fbbf24;
+  --color-amber-700: #fcd34d;
+  --color-amber-800: #fde68a;
+  --color-violet-50: #241b3b;
+  --color-violet-200: #3b2e5f;
+  --color-violet-700: #c4b5fd;
+}
+.dark .text-white,
+.dark .hover\:text-white:hover { color: #ffffff; }
+/* avatar circles and other "ink" fills stay dark with white initials */
+.dark .bg-ink { background-color: #33404c; }
+/* the brand panel on the sign-in page keeps the deep brand teal */
+.dark .brand-panel { background-color: #024f65; }
+.dark ::selection { background: #1a4a59; }
+
+::selection { background: var(--color-brand-100); }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+  main { padding: 0 !important; }
+}
