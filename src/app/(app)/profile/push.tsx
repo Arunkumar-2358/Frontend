@@ -45,8 +45,8 @@ export function PushToggle() {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
       const json = sub.toJSON();
-      const res = await fetch("/api/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }) });
-      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Could not save subscription");
+      const res = await fetch("/api/v1/push/subscriptions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error?.message ?? "Could not save subscription");
       setStatus("on");
       setMsg("Notifications enabled on this device.");
     } catch (e) {
@@ -63,7 +63,7 @@ export function PushToggle() {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
-        await fetch("/api/push", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+        await fetch("/api/v1/push/subscriptions", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) });
         await sub.unsubscribe();
       }
       setStatus("off");

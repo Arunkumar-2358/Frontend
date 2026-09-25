@@ -1,15 +1,15 @@
-import type { Candidate } from "@contracts";
+import type { LeadProfile } from "@contracts";
 import { Field, Input, Select, Checkbox, Textarea, humanize } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { toIstInputValue, formatDateTime } from "@contracts/shared/dates";
-import { STAGE_LABEL } from "@/server/lifecycle/rules";
-import { CV_REGISTER_FIELDS, NON_NT_SOURCES, type CandidatePlain, type FieldDef } from "@contracts/shared/fields";
+import { STAGE_LABEL } from "@contracts/shared/lifecycle";
+import { CV_REGISTER_FIELDS, NON_NT_SOURCES, type FieldDef } from "@contracts/shared/fields";
 import { saveProfileAction } from "./actions";
 
 const GROUP_ORDER = ["Identity", "Qualification", "Profile", "Commercials", "Source", "Compliance", "Ops"] as const;
 const NOT_NULL_ENUMS = new Set(["availabilityStatus", "source"]);
 
-type Lead = Candidate & CandidatePlain;
+type Lead = LeadProfile;
 
 function optionLabel(field: FieldDef, o: string) {
   if (field.key === "source" && (NON_NT_SOURCES as readonly string[]).includes(o)) return `${humanize(o)} (non-NT)`;
@@ -17,7 +17,7 @@ function optionLabel(field: FieldDef, o: string) {
 }
 
 function FieldInput({ f, c }: { f: FieldDef; c: Lead }) {
-  const v = c[f.key];
+  const v = (c as Record<string, unknown>)[f.key];
   switch (f.type) {
     case "readonly": {
       const text = f.key === "stage" ? STAGE_LABEL[c.stage] : humanize(String(v ?? ""));
@@ -69,7 +69,7 @@ export function ProfileEditor({ c, mandatory, missing, canEdit }: { c: Lead; man
                 {fields.map((f) =>
                   f.type === "bool" ? (
                     <div key={f.key} className="flex flex-col justify-end sm:col-span-2 lg:col-span-3">
-                      <Checkbox name={f.key} defaultChecked={Boolean(c[f.key])} label={f.label} />
+                      <Checkbox name={f.key} defaultChecked={Boolean((c as Record<string, unknown>)[f.key])} label={f.label} />
                       {f.key === "consentRecordStoreShare" && c.consentAt && <span className="mt-1 text-xs text-slate-400">Recorded {formatDateTime(c.consentAt)}</span>}
                     </div>
                   ) : (

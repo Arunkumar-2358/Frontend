@@ -1,6 +1,5 @@
-import type { JobStatus, Prisma } from "@contracts";
-import { prisma } from "@/lib/db";
-import { now } from "@/lib/clock";
+import type { JobStatus } from "@contracts";
+import { api } from "@/lib/api/client";
 import { formatDateTime } from "@contracts/shared/dates";
 import { PageHeader, Card, Table, Td, Badge, Stat, Select, Button, Pagination } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
@@ -8,25 +7,17 @@ import { freezeKpisAction, runDueJobsAction } from "./actions";
 
 export const metadata = { title: "Scheduled jobs" };
 
-const PAGE_SIZE = 50;
 const STATUSES: JobStatus[] = ["PENDING", "FAILED", "DONE", "CANCELLED"];
 const TONE = { PENDING: "blue", FAILED: "red", DONE: "green", CANCELLED: "slate" } as const;
 
 export default async function JobsPage({ searchParams }: { searchParams: Promise<{ status?: string; type?: string; page?: string }> }) {
   const sp = await searchParams;
   const status = STATUSES.find((s) => s === sp.status);
-  const page = Math.max(1, Number(sp.page) || 1);
-  const t = now();
-  const where: Prisma.ScheduledJobWhereInput = { ...(status ? { status } : {}), ...(sp.type ? { type: sp.type } : {}) };
-  const [counts, due, total, jobs, types, lastFreeze] = await Promise.all([
-    prisma.scheduledJob.groupBy({ by: ["status"], _count: { _all: true } }),
-    prisma.scheduledJob.count({ where: { status: "PENDING", runAt: { lte: t } } }),
-    prisma.scheduledJob.count({ where }),
-    prisma.scheduledJob.findMany({ where, orderBy: status === "DONE" ? { doneAt: "desc" } : { runAt: "asc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
-    prisma.scheduledJob.findMany({ distinct: ["type"], select: { type: true }, orderBy: { type: "asc" } }),
-    prisma.kpiSnapshot.findFirst({ orderBy: { frozenAt: "desc" } }),
-  ]);
-  const count = (s: JobStatus) => counts.find((c) => c.status === s)?._count._all ?? 0;
+  const t = new Date();
+  const { counts, due, total, jobs, types, lastFreezeAt, page, pageSize: PAGE_SIZE } = await api("GET /v1/admin/jobs", {
+    query: { status, type: sp.type, page: Math.max(1, Number(sp.page) || 1) },
+  });
+  const count = (s: JobStatus) => counts[s] ?? 0;
   const qs = (p: number) => `/admin/jobs?${new URLSearchParams(Object.entries({ ...sp, page: String(p) }).filter((e): e is [string, string] => !!e[1])).toString()}`;
 
   return (
@@ -36,7 +27,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         <Stat label="Pending" value={count("PENDING")} hint={`${due} due now`} tone={due ? "amber" : undefined} />
         <Stat label="Failed" value={count("FAILED")} tone={count("FAILED") ? "red" : "green"} />
         <Stat label="Done" value={count("DONE")} />
-        <Stat label="Last KPI freeze" value={<span className="text-base">{lastFreeze ? formatDateTime(lastFreeze.frozenAt) : "Never"}</span>} />
+        <Stat label="Last KPI freeze" value={<span className="text-base">{lastFreezeAt ? formatDateTime(lastFreezeAt) : "Never"}</span>} />
       </div>
       <Card className="mb-4">
         <div className="flex flex-wrap items-start gap-6">
@@ -53,7 +44,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       <Card className="mb-4">
         <form action="/admin/jobs" className="flex flex-wrap items-end gap-2">
           <Select name="status" defaultValue={status ?? ""} placeholder="Any status" options={STATUSES} className="w-auto" />
-          <Select name="type" defaultValue={sp.type ?? ""} placeholder="Any type" options={types.map((x) => ({ value: x.type, label: x.type }))} className="w-auto" />
+          <Select name="type" defaultValue={sp.type ?? ""} placeholder="Any type" options={types.map((x) => ({ value: x, label: x }))} className="w-auto" />
           <Button type="submit" variant="secondary">Filter</Button>
         </form>
       </Card>

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
 import { formatDateTime } from "@contracts/shared/dates";
 import { PageHeader, Card, Table, Td, Badge, Field, Input, Select, humanize } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
@@ -8,10 +8,7 @@ import { CATEGORIES, ROLES, ROLE_LABEL } from "./options";
 export const metadata = { title: "Users & roles" };
 
 export default async function UsersPage() {
-  const [users, teams] = await Promise.all([
-    prisma.user.findMany({ orderBy: [{ active: "desc" }, { name: "asc" }], include: { roles: { include: { team: true }, orderBy: { team: { code: "asc" } } } } }),
-    prisma.team.findMany({ orderBy: { code: "asc" } }),
-  ]);
+  const { users, teams } = await api("GET /v1/admin/users");
   const teamOpts = teams.map((t) => ({ value: t.code, label: `${t.code} · ${t.name}` }));
   const roleOpts = ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] }));
 

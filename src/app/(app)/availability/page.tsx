@@ -1,18 +1,11 @@
 import Link from "next/link";
-import type { Prisma } from "@contracts";
-import { prisma } from "@/lib/db";
-import { requireActor } from "@/lib/session";
-import { now } from "@/lib/clock";
-import { formatDate, formatDateTime, startOfIstMonth, startOfIstWeek } from "@contracts/shared/dates";
-import { isStageLeader } from "@/lib/rbac";
-import { getSetting } from "@/lib/settings";
+import { api } from "@/lib/api/client";
+import { formatDate, formatDateTime } from "@contracts/shared/dates";
 import { PageHeader, Card, Table, Td, Badge, Input, Stat, Pagination, StageBadge, humanize } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { availabilityCheckAction, setColdAction } from "./actions";
 
 export const metadata = { title: "Availability check-ins" };
-
-const PAGE_SIZE = 25;
 
 function CheckForms({ id, isCold, stage }: { id: string; isCold: boolean; stage: string }) {
   return (
@@ -46,50 +39,11 @@ function LeadCell({ c }: { c: { id: string; name: string; candidateCode: string;
 }
 
 export default async function AvailabilityPage({ searchParams }: { searchParams: Promise<{ page?: string; cold?: string }> }) {
-  const actor = await requireActor();
   const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page) || 1);
-  const coldOnly = sp.cold === "1";
-  const isLeader = isStageLeader(actor, "QUALIFIED");
-  const scope: Prisma.CandidateWhereInput = { anonymizedAt: null, ...(isLeader ? {} : { ownerUserId: actor.id }) };
-  const t = now();
-  const weekStart = startOfIstWeek(t);
-  const monthStart = startOfIstMonth(t);
-  const convWhere = (from: Date): Prisma.AvailabilityCheckWhereInput => ({ available: true, wasCold: true, checkedAt: { gte: from }, candidate: scope });
-  const qualifiedWhere: Prisma.CandidateWhereInput = { ...scope, stage: "QUALIFIED", ...(coldOnly ? { isCold: true } : {}) };
-
-  const [dueTasks, qualified, qualifiedTotal, coldCount, convWeek, convMonth, recent, interval] = await Promise.all([
-    prisma.task.findMany({
-      where: { type: "AVAILABILITY_CHECK", status: "OPEN", candidate: scope },
-      include: { candidate: { include: { owner: { select: { name: true } }, availabilityChecks: { orderBy: { checkedAt: "desc" }, take: 1 } } } },
-      orderBy: { dueAt: "asc" },
-      take: 200,
-    }),
-    prisma.candidate.findMany({
-      where: qualifiedWhere,
-      include: { owner: { select: { name: true } }, availabilityChecks: { orderBy: { checkedAt: "desc" }, take: 1 } },
-      orderBy: [{ isCold: "desc" }, { stageChangedAt: "asc" }],
-      take: PAGE_SIZE,
-      skip: (page - 1) * PAGE_SIZE,
-    }),
-    prisma.candidate.count({ where: qualifiedWhere }),
-    prisma.candidate.count({ where: { ...scope, stage: "QUALIFIED", isCold: true } }),
-    prisma.availabilityCheck.count({ where: convWhere(weekStart) }),
-    prisma.availabilityCheck.count({ where: convWhere(monthStart) }),
-    prisma.availabilityCheck.findMany({
-      where: { available: true, wasCold: true, candidate: scope },
-      include: { candidate: { select: { id: true, name: true, candidateCode: true, stage: true, isCold: true } } },
-      orderBy: { checkedAt: "desc" },
-      take: 10,
-    }),
-    getSetting("availabilityCheckIntervalDays"),
-  ]);
-
-  const ids = [...new Set([...qualified.map((c) => c.id), ...dueTasks.map((d) => d.candidateId).filter((x): x is string => !!x)])];
-  const jobs = await prisma.scheduledJob.findMany({ where: { status: "PENDING", dedupeKey: { in: ids.map((id) => `avail:${id}`) } }, select: { dedupeKey: true, runAt: true } });
-  const nextRun = new Map(jobs.map((j) => [j.dedupeKey!.slice("avail:".length), j.runAt]));
-  const checkers = await prisma.user.findMany({ where: { id: { in: recent.map((r) => r.byUserId).filter((x): x is string => !!x) } }, select: { id: true, name: true } });
-  const checkerName = new Map(checkers.map((u) => [u.id, u.name]));
+  const { isLeader, coldOnly, page, pageSize, interval, weekStart, monthStart, dueTasks, qualified, qualifiedTotal, coldCount, convWeek, convMonth, recent } = await api("GET /v1/availability", {
+    query: { page: Math.max(1, Number(sp.page) || 1), cold: sp.cold === "1" || undefined },
+  });
+  const t = new Date();
 
   return (
     <>
@@ -109,8 +63,8 @@ export default async function AvailabilityPage({ searchParams }: { searchParams:
         <Card title="Due now" pad={false}>
           <Table head={["Due", "Lead", "Status", "Last check", "Next scheduled", "Check-in"]} empty="No availability check-ins are due.">
             {dueTasks.map((task) => {
-              const c = task.candidate!;
-              const last = c.availabilityChecks[0];
+              const c = task.candidate;
+              const last = c.lastCheck;
               const overdue = task.dueAt.getTime() <= t.getTime();
               return (
                 <tr key={task.id}>
@@ -118,7 +72,7 @@ export default async function AvailabilityPage({ searchParams }: { searchParams:
                   <Td><LeadCell c={c} /></Td>
                   <Td><StageBadge stage={c.stage} cold={c.isCold} />{!c.isCold && <Badge tone="amber" className="ml-1">warm</Badge>}</Td>
                   <Td className="whitespace-nowrap">{last ? <>{formatDate(last.checkedAt)} <Badge tone={last.available ? "green" : "blue"}>{last.available ? "available" : "not available"}</Badge></> : <span className="text-slate-300">never</span>}</Td>
-                  <Td className="whitespace-nowrap">{formatDate(nextRun.get(c.id)) || <span className="text-slate-300">—</span>}</Td>
+                  <Td className="whitespace-nowrap">{formatDate(c.nextCheckAt) || <span className="text-slate-300">—</span>}</Td>
                   <Td><CheckForms id={c.id} isCold={c.isCold} stage={c.stage} /></Td>
                 </tr>
               );
@@ -133,7 +87,7 @@ export default async function AvailabilityPage({ searchParams }: { searchParams:
         >
           <Table head={["Lead", "Cold / warm", "Qualified since", "Last check", "Next scheduled check", "Check-in"]} empty="No qualified leads.">
             {qualified.map((c) => {
-              const last = c.availabilityChecks[0];
+              const last = c.lastCheck;
               return (
                 <tr key={c.id}>
                   <Td><LeadCell c={c} /></Td>
@@ -152,13 +106,13 @@ export default async function AvailabilityPage({ searchParams }: { searchParams:
                       <span className="text-slate-300">never</span>
                     )}
                   </Td>
-                  <Td className="whitespace-nowrap">{formatDate(nextRun.get(c.id)) || <span className="text-slate-300">not scheduled</span>}</Td>
+                  <Td className="whitespace-nowrap">{formatDate(c.nextCheckAt) || <span className="text-slate-300">not scheduled</span>}</Td>
                   <Td><CheckForms id={c.id} isCold={c.isCold} stage={c.stage} /></Td>
                 </tr>
               );
             })}
           </Table>
-          <Pagination page={page} pageSize={PAGE_SIZE} total={qualifiedTotal} hrefFor={(p) => `/availability?page=${p}${coldOnly ? "&cold=1" : ""}`} />
+          <Pagination page={page} pageSize={pageSize} total={qualifiedTotal} hrefFor={(p) => `/availability?page=${p}${coldOnly ? "&cold=1" : ""}`} />
         </Card>
 
         <Card title="Recent cold → warm conversions" pad={false}>
@@ -171,7 +125,7 @@ export default async function AvailabilityPage({ searchParams }: { searchParams:
                   <span className="ml-1 text-xs text-slate-400">{r.candidate.candidateCode}</span>
                 </Td>
                 <Td><StageBadge stage={r.candidate.stage} cold={r.candidate.isCold} /></Td>
-                <Td>{r.byUserId ? checkerName.get(r.byUserId) ?? "—" : "System"}</Td>
+                <Td>{r.byUserId ? r.byName ?? "—" : "System"}</Td>
                 <Td>{r.notes ?? ""}</Td>
               </tr>
             ))}

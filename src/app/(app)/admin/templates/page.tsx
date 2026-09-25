@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
 import { formatDateTime } from "@contracts/shared/dates";
 import { PageHeader, Card, Badge } from "@/components/ui";
 import { TemplateEditor } from "./editor";
@@ -7,7 +7,7 @@ import { PLACEHOLDERS } from "./placeholders";
 export const metadata = { title: "Message templates" };
 
 export default async function TemplatesPage() {
-  const templates = await prisma.messageTemplate.findMany({ orderBy: [{ key: "asc" }] });
+  const templates = await api("GET /v1/admin/templates");
   return (
     <>
       <PageHeader title="Message templates" subtitle="WhatsApp, SMS and email templates used by outreach, interview reminders and offers." />

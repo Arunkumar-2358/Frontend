@@ -1,7 +1,7 @@
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
 import { formatDate } from "@contracts/shared/dates";
-import { hasRole } from "@/lib/rbac";
+import { hasRole } from "@contracts/shared/rbac";
 import { PageHeader, Card, Badge, Empty, LinkButton } from "@/components/ui";
 import { toTree } from "./tree";
 
@@ -11,7 +11,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pr
   const actor = await requireActor();
   const sp = await searchParams;
   const canEdit = hasRole(actor, "admin", "team3_leader");
-  const templates = await prisma.evalTemplate.findMany({ include: { criteria: true, _count: { select: { evaluations: true } } }, orderBy: [{ active: "desc" }, { name: "asc" }] });
+  const templates = await api("GET /v1/evaluation-templates");
 
   return (
     <>

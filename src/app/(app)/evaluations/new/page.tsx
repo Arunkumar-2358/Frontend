@@ -1,10 +1,7 @@
 import Link from "next/link";
-import type { Stage } from "@contracts";
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
-import { formatDate } from "@contracts/shared/dates";
-import { hasRole, leadScope } from "@/lib/rbac";
-import { leadSearchWhere } from "@/server/search/service";
+import { hasRole } from "@contracts/shared/rbac";
 import { PageHeader, Card, Field, Input, Select, Checkbox, Empty, LinkButton, StageBadge, btnClass } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { createEvaluationAction } from "../actions";
@@ -18,39 +15,7 @@ export default async function NewEvaluationPage({ searchParams }: { searchParams
   const sp = await searchParams;
   if (!hasRole(actor, "admin", "recruiter", "team3_leader")) return <Empty title="Only Team 3 can create evaluations" />;
 
-  const [templates, vacancies] = await Promise.all([
-    prisma.evalTemplate.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.vacancy.findMany({
-      where: { OR: [{ status: { not: "CLOSED" } }, ...(sp.vacancyId ? [{ id: sp.vacancyId }] : [])], submissions: { some: {} } },
-      orderBy: { postedAt: "desc" },
-      take: 200,
-      select: { id: true, code: true, title: true, clientOrg: { select: { name: true } } },
-    }),
-  ]);
-  const vacancy = sp.vacancyId ? await prisma.vacancy.findUnique({ where: { id: sp.vacancyId }, select: { id: true, code: true, title: true } }) : null;
-
-  type Option = { id: string; name: string; candidateCode: string; stage: Stage; hint?: string };
-  let options: Option[] = [];
-  if (vacancy) {
-    const subs = await prisma.submission.findMany({
-      where: { vacancyId: vacancy.id },
-      include: { candidate: { select: { id: true, name: true, candidateCode: true, stage: true } } },
-      orderBy: [{ matchScore: "desc" }, { submittedAt: "asc" }],
-    });
-    options = subs.map((s) => ({ ...s.candidate, hint: `submitted ${formatDate(s.submittedAt)}${s.matchScore !== null ? ` · match ${s.matchScore}` : ""}` }));
-  } else if (sp.q?.trim()) {
-    const q = sp.q.trim();
-    options = await prisma.candidate.findMany({
-      where: { AND: [leadScope(actor), { anonymizedAt: null }, leadSearchWhere(q) ?? {}] },
-      select: { id: true, name: true, candidateCode: true, stage: true },
-      orderBy: { candidateCode: "asc" },
-      take: 25,
-    });
-  }
-  if (sp.candidateId && !options.some((o) => o.id === sp.candidateId)) {
-    const c = await prisma.candidate.findUnique({ where: { id: sp.candidateId }, select: { id: true, name: true, candidateCode: true, stage: true } });
-    if (c) options.unshift(c);
-  }
+  const { templates, vacancies, vacancy, options } = await api("GET /v1/evaluations/new-form", { query: { vacancyId: sp.vacancyId, q: sp.q, candidateId: sp.candidateId } });
 
   return (
     <>

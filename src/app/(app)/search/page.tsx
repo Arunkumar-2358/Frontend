@@ -1,22 +1,16 @@
 import Link from "next/link";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
-import { canAccessPath } from "@/lib/nav";
-import { hasRole } from "@/lib/rbac";
-import { decrypt } from "@/lib/crypto";
-import { maskMobile } from "@contracts/shared/phone";
 import { formatDate } from "@contracts/shared/dates";
-import { globalSearch } from "@/server/search/service";
 import { PageHeader, Card, Table, Td, Badge, StageBadge, Empty, humanize, Input, Button, LinkButton } from "@/components/ui";
 
 export const metadata = { title: "Search" };
 
 export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  const actor = await requireActor();
+  await requireActor();
   const q = (await searchParams).q?.trim() ?? "";
-  const roles = actor.roles.map((r) => r.role);
-  const canVacancies = canAccessPath("/vacancies", roles);
-  const canPeople = hasRole(actor, "admin", "team1_leader", "team2_leader", "team3_leader", "ta_coordinator");
-  const r = q ? await globalSearch(actor, q, { vacancies: canVacancies, people: canPeople }) : null;
+  // The API only searches vacancies/clients and people for roles allowed to see them.
+  const r = q ? (await api("GET /v1/search", { query: { q } })).result : null;
   const total = r ? r.leadCount + r.vacancyCount + r.clients.length + r.people.length : 0;
 
   return (
@@ -51,7 +45,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
                     </Td>
                     <Td>{[c.mainCategory && humanize(c.mainCategory), c.primarySpecialty].filter(Boolean).join(" · ") || "—"}</Td>
                     <Td>{c.currentLocation ?? "—"}</Td>
-                    <Td className="whitespace-nowrap text-slate-500">{maskMobile(decrypt(c.mobileEnc))}</Td>
+                    <Td className="whitespace-nowrap text-slate-500">{c.mobileMasked}</Td>
                     <Td><StageBadge stage={c.stage} cold={c.isCold} /></Td>
                     <Td>{c.owner?.name ?? "Unassigned"}</Td>
                   </tr>

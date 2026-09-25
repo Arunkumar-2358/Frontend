@@ -1,12 +1,10 @@
 import Link from "next/link";
-import type { Prisma } from "@contracts";
-import { prisma } from "@/lib/db";
-import { formatDateTime, fromIstInputValue, addDays } from "@contracts/shared/dates";
+import { api } from "@/lib/api/client";
+import { formatDateTime } from "@contracts/shared/dates";
 import { PageHeader, Card, Table, Td, Badge, Input, Select, Button, LinkButton, Pagination, Field } from "@/components/ui";
 
 export const metadata = { title: "Audit log" };
 
-const PAGE_SIZE = 50;
 const ACTIONS = ["STAGE_CHANGE", "FIELD_EDIT", "CREATE", "REASSIGN", "VIEW_PII", "LOGIN", "IMPORT", "CONTACT_LOGGED", "MESSAGE_SENT", "REMINDER_SENT", "TASK_CREATED", "TASK_COMPLETED", "JOB_RUN", "RED_FLAG", "SETTING_CHANGE", "DATA_DELETION", "EXPORT"];
 
 type SP = { action?: string; entityType?: string; entityId?: string; actor?: string; from?: string; to?: string; page?: string };
@@ -19,22 +17,9 @@ function compact(v: unknown) {
 
 export default async function AuditPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page) || 1);
-  const from = sp.from ? fromIstInputValue(sp.from) : null;
-  const to = sp.to ? fromIstInputValue(sp.to) : null;
-  const where: Prisma.AuditLogWhereInput = {
-    ...(sp.action ? { action: sp.action } : {}),
-    ...(sp.entityType ? { entityType: sp.entityType } : {}),
-    ...(sp.entityId ? { entityId: sp.entityId.trim() } : {}),
-    ...(sp.actor ? (sp.actor.startsWith("system") ? { actorId: null, actorLabel: { contains: sp.actor.replace(/^system:?/, "") } } : { actorId: sp.actor }) : {}),
-    ...(from || to ? { at: { ...(from ? { gte: from } : {}), ...(to ? { lt: addDays(to, 1) } : {}) } } : {}),
-  };
-  const [total, rows, entityTypes, users] = await Promise.all([
-    prisma.auditLog.count({ where }),
-    prisma.auditLog.findMany({ where, orderBy: { at: "desc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
-    prisma.auditLog.findMany({ distinct: ["entityType"], select: { entityType: true }, orderBy: { entityType: "asc" } }),
-    prisma.user.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-  ]);
+  const { total, rows, entityTypes, users, page, pageSize: PAGE_SIZE } = await api("GET /v1/admin/audit", {
+    query: { action: sp.action, entityType: sp.entityType, entityId: sp.entityId, actor: sp.actor, from: sp.from, to: sp.to, page: Math.max(1, Number(sp.page) || 1) },
+  });
   const qs = (p: number) => {
     const u = new URLSearchParams(Object.entries({ ...sp, page: String(p) }).filter((e): e is [string, string] => !!e[1]));
     return `/admin/audit?${u.toString()}`;
@@ -46,7 +31,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       <Card className="mb-4">
         <form action="/admin/audit" className="grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
           <Field label="Action"><Select name="action" defaultValue={sp.action ?? ""} placeholder="Any" options={ACTIONS} /></Field>
-          <Field label="Entity type"><Select name="entityType" defaultValue={sp.entityType ?? ""} placeholder="Any" options={entityTypes.map((e) => ({ value: e.entityType, label: e.entityType }))} /></Field>
+          <Field label="Entity type"><Select name="entityType" defaultValue={sp.entityType ?? ""} placeholder="Any" options={entityTypes.map((e) => ({ value: e, label: e }))} /></Field>
           <Field label="Entity id"><Input name="entityId" defaultValue={sp.entityId ?? ""} /></Field>
           <Field label="Actor"><Select name="actor" defaultValue={sp.actor ?? ""} placeholder="Anyone" options={[{ value: "system", label: "System (any)" }, ...users.map((u) => ({ value: u.id, label: u.name }))]} /></Field>
           <Field label="From"><Input type="date" name="from" defaultValue={sp.from ?? ""} /></Field>

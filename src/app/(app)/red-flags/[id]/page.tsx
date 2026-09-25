@@ -1,39 +1,33 @@
 import { notFound, redirect } from "next/navigation";
 import clsx from "clsx";
-import { prisma } from "@/lib/db";
-import { requireActor } from "@/lib/session";
-import { now } from "@/lib/clock";
-import { getSetting } from "@/lib/settings";
-import { addWorkingDays, formatDate, formatDateTime, istDateKey } from "@contracts/shared/dates";
-import { canManageRedFlags } from "@/lib/rbac";
-import { holidaySet } from "@/server/redflags/service";
+import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
+import { formatDate, formatDateTime, istDateKey } from "@contracts/shared/dates";
 import { PageHeader, Card, Dl, Badge, Field, Input, Select, Textarea, LinkButton } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { implementCapaAction, suggestCapaAction, verifyAndCloseAction } from "../actions";
-import { canViewRedFlag, STATUS_LABEL, STATUS_TONE } from "../scope";
+import { STATUS_LABEL, STATUS_TONE } from "../scope";
 
 export const metadata = { title: "Red flag" };
 
 const STEPS = ["OPEN", "CAPA_SUGGESTED", "IMPLEMENTED", "CLOSED"] as const;
 
-export default async function RedFlagPage({ params }: { params: Promise<{ id: string }> }) {
-  const actor = await requireActor();
-  const { id } = await params;
-  const f = await prisma.redFlag.findUnique({
-    where: { id },
-    include: { agent: { select: { name: true } }, actionOwner: { select: { id: true, name: true } }, raisedBy: { select: { name: true } } },
-  });
-  if (!f) notFound();
-  if (!canViewRedFlag(actor, f)) redirect("/dashboard?denied=1");
+async function load(id: string) {
+  try {
+    return await api("GET /v1/red-flags/{id}", { params: { id } });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    if (e instanceof ApiError && e.status === 403) redirect("/dashboard?denied=1");
+    throw e;
+  }
+}
 
-  const manage = canManageRedFlags(actor);
-  const isOwner = f.actionOwnerId === actor.id;
-  const t = now();
-  const [sla, holidays] = await Promise.all([getSetting("redFlagSlaWorkingDays"), holidaySet()]);
-  const slaDeadline = addWorkingDays(f.raisedOn, sla, holidays);
+export default async function RedFlagPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const { flag: f, manage, isOwner, sla, slaDeadline, todayIsHoliday, users } = await load(id);
+  const t = new Date();
   const overdue = !!f.dueDate && f.status !== "CLOSED" && f.dueDate < t;
   const stepIdx = STEPS.indexOf(f.status);
-  const users = manage ? await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }) : [];
 
   return (
     <>
@@ -98,7 +92,7 @@ export default async function RedFlagPage({ params }: { params: Promise<{ id: st
                 {slaDeadline < t && <Badge tone="red" className="ml-2">SLA breached</Badge>}
               </p>
             )}
-            <p className="mt-2 text-xs text-slate-400">Working days skip Sundays and the holiday calendar{holidays.has(istDateKey(t)) ? " (today is a holiday)" : ""}.</p>
+            <p className="mt-2 text-xs text-slate-400">Working days skip Sundays and the holiday calendar{todayIsHoliday ? " (today is a holiday)" : ""}.</p>
           </Card>
 
           {manage && f.status !== "CLOSED" && f.status !== "IMPLEMENTED" && (

@@ -1,27 +1,20 @@
 import Link from "next/link";
-import type { LeadSource, MainCategory, Prisma, Stage } from "@contracts";
-import { prisma } from "@/lib/db";
+import type { LeadBoard, LeadListPage, LeadSourceFilter, MainCategory, Stage } from "@contracts";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
-import { leadScope } from "@/lib/rbac";
 import { formatDateTime } from "@contracts/shared/dates";
-import { maskMobile } from "@contracts/shared/phone";
-import { decrypt } from "@/lib/crypto";
-import { now } from "@/lib/clock";
-import { PIPELINE, EXIT_STAGES, STAGE_LABEL } from "@/server/lifecycle/rules";
-import { MAIN_CATEGORIES, LEAD_SOURCES, NON_NT_SOURCES, isNtSourceFor } from "@contracts/shared/fields";
-import { leadSearchWhere } from "@/server/search/service";
+import { PIPELINE, EXIT_STAGES, STAGE_LABEL } from "@contracts/shared/lifecycle";
+import { MAIN_CATEGORIES, LEAD_SOURCES, isNtSourceFor } from "@contracts/shared/fields";
 import { PageHeader, Card, Table, Td, Badge, StageBadge, Progress, Pagination, LinkButton, Input, Select, Button, humanize, STAGE_TONE } from "@/components/ui";
 
 export const metadata = { title: "Leads & talent pool" };
 
-const PAGE_SIZE = 50;
-const KANBAN_CARDS = 25;
 const ALL_STAGES = [...PIPELINE, ...EXIT_STAGES];
 
 type SP = { page?: string; stage?: string; category?: string; owner?: string; source?: string; cold?: string; q?: string; view?: string };
 
 export default async function LeadsPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const actor = await requireActor();
+  await requireActor();
   const sp = await searchParams;
   const view = sp.view === "kanban" ? "kanban" : "list";
   const page = Math.max(1, Number(sp.page) || 1);
@@ -32,20 +25,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const q = sp.q?.trim() || undefined;
 
   // Filters common to list and board (the board ignores the stage filter — it is the columns).
-  const base: Prisma.CandidateWhereInput[] = [leadScope(actor)];
-  if (category) base.push({ mainCategory: category });
-  if (sp.owner === "me") base.push({ ownerUserId: actor.id });
-  else if (sp.owner === "none") base.push({ ownerUserId: null });
-  else if (sp.owner) base.push({ ownerUserId: sp.owner });
-  // Derive NT / non-NT from the source itself (isNtSource is only set when a source is given).
-  if (source === "NT_ALL") base.push({ source: { notIn: [...NON_NT_SOURCES] } });
-  else if (source === "NON_NT") base.push({ source: { in: [...NON_NT_SOURCES] } });
-  else if (source) base.push({ source: source as LeadSource });
-  if (sp.cold === "1") base.push({ isCold: true });
-  const search = leadSearchWhere(q);
-  if (search) base.push(search);
-
-  const owners = await prisma.user.findMany({ where: { active: true, ownedLeads: { some: {} } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+  const { owners, list, board } = await api("GET /v1/leads", {
+    query: {
+      view,
+      page: view === "list" ? page : undefined,
+      stage: view === "list" ? stage : undefined,
+      category,
+      owner: sp.owner || undefined,
+      source: source as LeadSourceFilter | undefined,
+      cold: sp.cold === "1" ? true : undefined,
+      q,
+    },
+  });
 
   const qs = (over: Partial<SP>) => {
     const p = new URLSearchParams();
@@ -104,24 +95,14 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
         </form>
       </Card>
 
-      {view === "kanban" ? <Kanban base={base} qs={qs} /> : <LeadList base={base} stage={stage} page={page} qs={qs} />}
+      {board ? <Kanban board={board} qs={qs} /> : list ? <LeadList list={list} qs={qs} /> : null}
     </>
   );
 }
 
-async function LeadList({ base, stage, page, qs }: { base: Prisma.CandidateWhereInput[]; stage?: Stage; page: number; qs: (o: Partial<SP>) => string }) {
-  const where: Prisma.CandidateWhereInput = { AND: [...base, ...(stage ? [{ stage }] : [])] };
-  const [total, rows] = await Promise.all([
-    prisma.candidate.count({ where }),
-    prisma.candidate.findMany({
-      where,
-      include: { owner: { select: { name: true } } },
-      orderBy: [{ nextFollowupAt: { sort: "asc", nulls: "last" } }, { lastUpdated: "desc" }],
-      take: PAGE_SIZE,
-      skip: (page - 1) * PAGE_SIZE,
-    }),
-  ]);
-  const t = now().getTime();
+function LeadList({ list, qs }: { list: LeadListPage; qs: (o: Partial<SP>) => string }) {
+  const { total, rows, page, pageSize } = list;
+  const t = Date.now();
   return (
     <Card pad={false}>
       <Table head={["Code", "Name", "Category / specialty", "Location", "Stage", "Owner", "Completeness", "Next follow-up", "Mobile"]} empty="No leads match these filters.">
@@ -145,32 +126,19 @@ async function LeadList({ base, stage, page, qs }: { base: Prisma.CandidateWhere
               <Td className="whitespace-nowrap">{c.owner?.name ?? <span className="text-slate-400">Unassigned</span>}</Td>
               <Td><Progress value={c.profileCompletenessPct} /></Td>
               <Td className={overdue ? "whitespace-nowrap font-medium text-red-600" : "whitespace-nowrap"}>{c.nextFollowupAt ? formatDateTime(c.nextFollowupAt) : <span className="text-slate-300">—</span>}</Td>
-              <Td className="font-mono text-xs whitespace-nowrap">{maskMobile(decrypt(c.mobileEnc))}</Td>
+              <Td className="font-mono text-xs whitespace-nowrap">{c.mobileMasked}</Td>
             </tr>
           );
         })}
       </Table>
-      <Pagination page={page} pageSize={PAGE_SIZE} total={total} hrefFor={(p) => qs({ page: String(p) })} />
+      <Pagination page={page} pageSize={pageSize} total={total} hrefFor={(p) => qs({ page: String(p) })} />
     </Card>
   );
 }
 
-async function Kanban({ base, qs }: { base: Prisma.CandidateWhereInput[]; qs: (o: Partial<SP>) => string }) {
-  const where: Prisma.CandidateWhereInput = { AND: base };
-  const [counts, columns] = await Promise.all([
-    prisma.candidate.groupBy({ by: ["stage"], where, _count: { _all: true } }),
-    Promise.all(
-      PIPELINE.map((s) =>
-        prisma.candidate.findMany({
-          where: { AND: [...base, { stage: s }] },
-          select: { id: true, name: true, candidateCode: true, mainCategory: true, primarySpecialty: true, isCold: true, owner: { select: { name: true } } },
-          orderBy: { stageChangedAt: "desc" },
-          take: KANBAN_CARDS,
-        }),
-      ),
-    ),
-  ]);
-  const countOf = (s: Stage) => counts.find((c) => c.stage === s)?._count._all ?? 0;
+function Kanban({ board, qs }: { board: LeadBoard; qs: (o: Partial<SP>) => string }) {
+  const KANBAN_CARDS = board.cardsPerColumn;
+  const countOf = (s: Stage) => board.counts[s] ?? 0;
 
   return (
     <>
@@ -186,7 +154,7 @@ async function Kanban({ base, qs }: { base: Prisma.CandidateWhereInput[]; qs: (o
       </div>
       <div className="-mx-4 overflow-x-auto px-4 pb-4 sm:mx-0 sm:px-0">
         <div className="flex gap-3" style={{ minWidth: `${PIPELINE.length * 16.5}rem` }}>
-          {PIPELINE.map((s, i) => {
+          {PIPELINE.map((s) => {
             const n = countOf(s);
             return (
               <div key={s} className="flex w-64 shrink-0 flex-col rounded-xl border border-slate-200 bg-slate-50">
@@ -197,7 +165,7 @@ async function Kanban({ base, qs }: { base: Prisma.CandidateWhereInput[]; qs: (o
                   <Badge tone={STAGE_TONE[s]}>{n.toLocaleString("en-IN")}</Badge>
                 </div>
                 <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto p-2">
-                  {columns[i].map((c) => (
+                  {(board.columns[s] ?? []).map((c) => (
                     <Link key={c.id} href={`/leads/${c.id}`} className="block rounded-lg border border-slate-200 bg-white p-2.5 shadow-xs hover:border-brand-300">
                       <div className="flex items-start justify-between gap-2">
                         <span className="text-sm font-medium text-slate-900">{c.name}</span>

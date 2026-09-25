@@ -1,8 +1,7 @@
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
-import { now } from "@/lib/clock";
 import { toIstInputValue } from "@contracts/shared/dates";
-import { hasRole } from "@/lib/rbac";
+import { hasRole } from "@contracts/shared/rbac";
 import { MAIN_CATEGORIES } from "@contracts/shared/fields";
 import { PageHeader, Card, Field, Input, Select, Empty, LinkButton } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
@@ -23,7 +22,7 @@ export default async function NewVacancyPage({ searchParams }: { searchParams: P
   if (!hasRole(actor, "admin", "sourcer", "team2_leader", "recruiter", "team3_leader")) {
     return <Empty title="Only Teams 2 and 3 can add vacancies" />;
   }
-  const orgs = await prisma.clientOrg.findMany({ orderBy: { name: "asc" } });
+  const orgs = await api("GET /v1/vacancies/client-orgs");
   const routeHint = { GENERAL: "3a", EXISTING: "3b", FREE_TRIAL: "3c" } as const;
 
   return (
@@ -51,7 +50,7 @@ export default async function NewVacancyPage({ searchParams }: { searchParams: P
             <Field label="CTC maximum (₹ lakhs)"><Input name="ctcMaxLakhs" type="number" min={0} step="0.1" /></Field>
             <Field label="Openings"><Input name="openings" type="number" min={1} step={1} defaultValue={1} /></Field>
             <Field label="Posted at (IST)" hint="Defaults to now. Before 14:00 IST counts as “added before 2 pm”.">
-              <Input name="postedAt" type="datetime-local" defaultValue={toIstInputValue(now())} />
+              <Input name="postedAt" type="datetime-local" defaultValue={toIstInputValue(new Date())} />
             </Field>
             <div className="sm:col-span-2">
               <Submit>Create vacancy</Submit>

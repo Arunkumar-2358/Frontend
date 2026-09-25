@@ -1,33 +1,16 @@
 import Link from "next/link";
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
 import { formatDateTime } from "@contracts/shared/dates";
-import { hasRole } from "@/lib/rbac";
+import { hasRole } from "@contracts/shared/rbac";
 import { PageHeader, Card, Table, Td, Pagination, LinkButton } from "@/components/ui";
 
 export const metadata = { title: "Scorecards" };
 
-const PAGE_SIZE = 25;
-
 export default async function EvaluationsPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const actor = await requireActor();
   const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page) || 1);
-  const [total, evals] = await Promise.all([
-    prisma.evaluation.count(),
-    prisma.evaluation.findMany({
-      include: {
-        vacancy: { select: { id: true, code: true, title: true } },
-        template: { select: { name: true } },
-        candidates: { include: { candidate: { select: { name: true, candidateCode: true } } }, orderBy: { slot: "asc" } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: PAGE_SIZE,
-      skip: (page - 1) * PAGE_SIZE,
-    }),
-  ]);
-  const creators = await prisma.user.findMany({ where: { id: { in: evals.map((e) => e.createdById).filter((x): x is string => !!x) } }, select: { id: true, name: true } });
-  const creatorName = new Map(creators.map((u) => [u.id, u.name]));
+  const { total, page, pageSize: PAGE_SIZE, evaluations: evals } = await api("GET /v1/evaluations", { query: { page: Math.max(1, Math.floor(Number(sp.page)) || 1) } });
   const canScore = hasRole(actor, "admin", "recruiter", "team3_leader");
   const canEditTemplates = hasRole(actor, "admin", "team3_leader");
 
@@ -53,7 +36,7 @@ export default async function EvaluationsPage({ searchParams }: { searchParams: 
               <Td className="text-xs">{e.candidates.map((c) => `${c.candidate.name} (${c.candidate.candidateCode})`).join(", ")}</Td>
               <Td className="whitespace-nowrap">
                 {formatDateTime(e.createdAt)}
-                {e.createdById && <div className="text-xs text-slate-400">{creatorName.get(e.createdById)}</div>}
+                {e.createdById && <div className="text-xs text-slate-400">{e.creatorName}</div>}
               </Td>
             </tr>
           ))}

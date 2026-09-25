@@ -1,20 +1,19 @@
 import Link from "next/link";
-import { prisma } from "@/lib/db";
+import type { ImportMappingStep } from "@contracts";
+import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { requireActor } from "@/lib/session";
-import { hasRole } from "@/lib/rbac";
+import { hasRole } from "@contracts/shared/rbac";
 import { formatDateTime } from "@contracts/shared/dates";
-import { errorMessage } from "@/lib/errors";
 import { LEAD_SOURCES, MAIN_CATEGORIES, NON_NT_SOURCES } from "@contracts/shared/fields";
+import { TARGET_FIELDS, isImportKey, parseCategoryParam, parseSourceParam } from "@contracts/shared/d-import";
 import { PageHeader, Card, Table, Td, Badge, Input, Select, Field, Empty, Pagination, LinkButton, humanize, btnClass } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { runImportAction, uploadImportAction } from "./actions";
-import { TARGET_FIELDS, cellText, isImportKey, loadUpload, parseCategoryParam, parseSourceParam, suggestMapping } from "./upload";
 
 export const metadata = { title: "Data import" };
 
 type SP = { file?: string; name?: string; source?: string; category?: string; location?: string; preset?: string; page?: string };
-
-const PAGE_SIZE = 20;
 
 export default async function ImportPage({ searchParams }: { searchParams: Promise<SP> }) {
   const actor = await requireActor();
@@ -22,11 +21,7 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
   if (sp.file) return <MappingStep sp={sp} />;
 
-  const page = Math.max(1, Number(sp.page) || 1);
-  const [batches, total] = await Promise.all([
-    prisma.importBatch.findMany({ orderBy: { createdAt: "desc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE, include: { uploadedBy: { select: { name: true } } } }),
-    prisma.importBatch.count(),
-  ]);
+  const { batches, total, page, pageSize: PAGE_SIZE } = await api("GET /v1/imports", { query: { page: Math.max(1, Number(sp.page) || 1) } });
 
   return (
     <>
@@ -86,27 +81,30 @@ async function MappingStep({ sp }: { sp: SP }) {
   const category = parseCategoryParam(sp.category);
   const location = sp.location ?? "";
 
-  let parsed: Awaited<ReturnType<typeof loadUpload>>;
-  try {
-    if (!isImportKey(fileKey)) throw new Error("Upload not found — please upload the file again");
-    parsed = await loadUpload(fileKey, fileName);
-  } catch (e) {
+  let step: ImportMappingStep | undefined;
+  let failure = "Upload not found — please upload the file again";
+  if (isImportKey(fileKey)) {
+    try {
+      step = await api("GET /v1/imports/uploads", { query: { file: fileKey, name: fileName, preset: sp.preset } });
+    } catch (e) {
+      if (!(e instanceof ApiError)) throw e;
+      failure = e.message;
+    }
+  }
+  if (!step) {
     return (
       <>
         <PageHeader title="Data import" />
         <Empty title="Could not open the uploaded file">
-          {errorMessage(e)} <Link href="/import" className="text-brand-600 hover:underline">Start again</Link>
+          {failure} <Link href="/import" className="text-brand-600 hover:underline">Start again</Link>
         </Empty>
       </>
     );
   }
-  const { headers, rows } = parsed;
-  const savedMappings = await prisma.importMapping.findMany({ orderBy: [{ isPreset: "desc" }, { name: "asc" }] });
-  const chosen = sp.preset ? savedMappings.find((m) => m.name === sp.preset) : undefined;
-  const mapping = suggestMapping(headers, sp.preset, chosen ? (chosen.mapping as Record<string, string>) : null);
-  const preview = rows.slice(0, 5);
-  const sample = (h: string) => cellText(rows.find((r) => cellText(r[h]).trim() !== "")?.[h]);
-  const mappedCount = Object.values(mapping).filter(Boolean).length;
+  const { headers, rowCount, preview, samples, savedMappings, chosen } = step;
+  const mapping = step.mapping;
+  const sample = (i: number) => samples[i] ?? "";
+  const mappedCount = mapping.filter(Boolean).length;
   const carry = { file: fileKey!, name: fileName, source, ...(category ? { category } : {}), ...(location ? { location } : {}) };
 
   return (
@@ -115,7 +113,7 @@ async function MappingStep({ sp }: { sp: SP }) {
         title="Map columns"
         subtitle={
           <>
-            Step 2 of 2 · <span className="font-medium text-slate-700">{fileName}</span> · {rows.length.toLocaleString("en-IN")} data rows · {headers.length} columns · source {humanize(source)}
+            Step 2 of 2 · <span className="font-medium text-slate-700">{fileName}</span> · {rowCount.toLocaleString("en-IN")} data rows · {headers.length} columns · source {humanize(source)}
             {category && <> · default category {humanize(category)}</>}
             {location && <> · default location {location}</>}
           </>
@@ -128,8 +126,8 @@ async function MappingStep({ sp }: { sp: SP }) {
           <Table head={headers}>
             {preview.map((r, i) => (
               <tr key={i}>
-                {headers.map((h, j) => (
-                  <Td key={j} className="max-w-48 truncate whitespace-nowrap" title={cellText(r[h])}>{cellText(r[h])}</Td>
+                {headers.map((_h, j) => (
+                  <Td key={j} className="max-w-48 truncate whitespace-nowrap" title={r[j]}>{r[j]}</Td>
                 ))}
               </tr>
             ))}
@@ -157,9 +155,9 @@ async function MappingStep({ sp }: { sp: SP }) {
               {headers.map((h, i) => (
                 <tr key={i}>
                   <Td className="font-medium text-slate-900">{h}</Td>
-                  <Td className="max-w-64 truncate text-slate-500" title={sample(h)}>{sample(h) || <span className="text-slate-300">—</span>}</Td>
+                  <Td className="max-w-64 truncate text-slate-500" title={sample(i)}>{sample(i) || <span className="text-slate-300">—</span>}</Td>
                   <Td className="min-w-56">
-                    <Select name={`map_${i}`} defaultValue={mapping[h] ?? ""} options={[{ value: "", label: "(ignore)" }, ...TARGET_FIELDS]} className="py-1.5" />
+                    <Select name={`map_${i}`} defaultValue={mapping[i] ?? ""} options={[{ value: "", label: "(ignore)" }, ...TARGET_FIELDS]} className="py-1.5" />
                   </Td>
                 </tr>
               ))}
@@ -170,7 +168,7 @@ async function MappingStep({ sp }: { sp: SP }) {
               </Field>
               <div className="flex flex-col items-start gap-1 sm:items-end">
                 <span className="text-xs text-slate-500">{mappedCount} of {headers.length} columns mapped · Mobile and Name are required</span>
-                <Submit>Run import ({rows.length.toLocaleString("en-IN")} rows)</Submit>
+                <Submit>Run import ({rowCount.toLocaleString("en-IN")} rows)</Submit>
               </div>
             </div>
           </ActionForm>

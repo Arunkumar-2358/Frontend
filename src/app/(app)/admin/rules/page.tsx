@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
 import { PageHeader, Card, Table, Td, Input, Select, Checkbox } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { deleteRuleAction, saveRuleAction } from "./actions";
@@ -7,11 +7,7 @@ import { CATEGORIES } from "../users/options";
 export const metadata = { title: "Assignment rules" };
 
 export default async function RulesPage() {
-  const [rules, users, teams] = await Promise.all([
-    prisma.assignmentRule.findMany({ orderBy: [{ teamCode: "asc" }, { category: "asc" }, { priority: "desc" }], include: { user: { select: { name: true, active: true } } } }),
-    prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.team.findMany({ orderBy: { code: "asc" } }),
-  ]);
+  const { rules, users, teams } = await api("GET /v1/admin/rules");
   const userOpts = users.map((u) => ({ value: u.id, label: u.name }));
   const teamOpts = teams.map((t) => ({ value: t.code, label: t.code }));
   const cls = "py-1 text-xs";

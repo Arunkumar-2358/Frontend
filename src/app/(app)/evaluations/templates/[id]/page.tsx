@@ -1,14 +1,24 @@
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { requireActor } from "@/lib/session";
-import { hasRole } from "@/lib/rbac";
-import { DEFAULT_CRITERIA } from "@/server/eval/service";
+import { hasRole } from "@contracts/shared/rbac";
+import { DEFAULT_CRITERIA } from "@contracts/shared/labels";
 import { PageHeader, Card, Empty, LinkButton } from "@/components/ui";
 import { saveTemplateAction } from "../../actions";
 import { TemplateEditor, type EditorCriterion } from "../template-editor";
 import { toTree } from "../tree";
 
 export const metadata = { title: "Edit scorecard template" };
+
+async function loadTemplate(id: string) {
+  try {
+    return await api("GET /v1/evaluation-templates/{id}", { params: { id } });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+}
 
 export default async function TemplateEditPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ copy?: string }> }) {
   const actor = await requireActor();
@@ -17,7 +27,7 @@ export default async function TemplateEditPage({ params, searchParams }: { param
   if (!hasRole(actor, "admin", "team3_leader")) return <Empty title="Only admins and the Team 3 leader can edit scorecard templates" />;
 
   const sourceId = id === "new" ? sp.copy : id;
-  const t = sourceId ? await prisma.evalTemplate.findUnique({ where: { id: sourceId }, include: { criteria: true, _count: { select: { evaluations: true } } } }) : null;
+  const t = sourceId ? await loadTemplate(sourceId) : null;
   if (id !== "new" && !t) notFound();
   const used = id !== "new" && !!t?._count.evaluations;
 

@@ -1,25 +1,17 @@
 import Link from "next/link";
 import clsx from "clsx";
-import type { Prisma } from "@contracts";
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
-import { now } from "@/lib/clock";
 import { formatDateTime } from "@contracts/shared/dates";
-import { getSetting } from "@/lib/settings";
-import { hasRole } from "@/lib/rbac";
+import { hasRole } from "@contracts/shared/rbac";
 import { MAIN_CATEGORIES, NON_NT_SOURCES } from "@contracts/shared/fields";
-import { OUTCOME_LABEL } from "@/server/outreach/service";
-import { teamMembers } from "@/server/users/assignment";
+import { OUTCOME_LABEL } from "@contracts/shared/labels";
 import { PageHeader, Card, Badge, Input, Select, Field, Checkbox, Empty, Pagination, LinkButton, humanize, btnClass } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { addPortalLeadAction, allocateAction, logContactAction, sendLinkAction } from "./actions";
 import { BulkAllocateForm } from "./bulk-allocate";
 
 export const metadata = { title: "Outreach queue" };
-
-const PAGE_SIZE = 30;
-const MINE_CAP = 500;
-const OPEN_OUTREACH_TASK = { status: "OPEN", type: { in: ["FOLLOW_UP", "RECALL"] } } satisfies Prisma.TaskWhereInput;
 
 const OUTCOME_BUTTONS = [
   { value: "UNANSWERED", label: "Unanswered", variant: "secondary" },
@@ -38,60 +30,10 @@ export default async function QueuePage({ searchParams }: { searchParams: Promis
   const actor = await requireActor();
   if (!hasRole(actor, "ta_lead", "team1_leader", "telecaller", "admin")) return <Empty title="No access">The outreach queue is for Team 1 (TA leads, tele-callers and their leader).</Empty>;
   const sp = await searchParams;
-  const isLeader = hasRole(actor, "team1_leader", "admin");
-  const canAddPortalLead = hasRole(actor, "ta_lead", "team1_leader", "admin");
-  const scope = sp.scope === "team" && isLeader ? "team" : "mine";
-  const overdueOnly = sp.overdue === "1";
-  const page = Math.max(1, Number(sp.page) || 1);
-  const t = now();
-  const cap = await getSetting("maxContactAttempts");
-
-  const mineWhere: Prisma.CandidateWhereInput = { stage: "VALIDATED", OR: [{ ownerUserId: actor.id }, { tasks: { some: { ...OPEN_OUTREACH_TASK, assigneeId: actor.id } } }] };
-  const where: Prisma.CandidateWhereInput = scope === "mine" ? mineWhere : { stage: "VALIDATED" };
-  const include = {
-    owner: { select: { id: true, name: true } },
-    tasks: {
-      where: scope === "mine" ? { ...OPEN_OUTREACH_TASK, assigneeId: actor.id } : OPEN_OUTREACH_TASK,
-      orderBy: { dueAt: "asc" },
-      select: { id: true, dueAt: true, refType: true, assigneeId: true, title: true, assignee: { select: { name: true } } },
-    },
-    contactAttempts: { orderBy: { at: "desc" }, take: 1, select: { outcome: true, channel: true, at: true } },
-  } satisfies Prisma.CandidateInclude;
-  type Row = Prisma.CandidateGetPayload<{ include: typeof include }>;
-
-  const dueOf = (c: Row) => {
-    const times = [c.tasks[0]?.dueAt, c.nextFollowupAt].filter((d): d is Date => !!d).map((d) => d.getTime());
-    return times.length ? Math.min(...times) : null;
-  };
-
-  let rows: Row[];
-  let total: number;
-  if (scope === "mine") {
-    // A personal queue is small: load it, sort by the true due time (task or follow-up), paginate in memory.
-    const all = await prisma.candidate.findMany({ where, include, orderBy: { nextFollowupAt: { sort: "asc", nulls: "last" } }, take: MINE_CAP });
-    const sorted = all
-      .filter((c) => !overdueOnly || (dueOf(c) ?? Infinity) <= t.getTime())
-      .sort((a, b) => (dueOf(a) ?? Infinity) - (dueOf(b) ?? Infinity));
-    total = sorted.length;
-    rows = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  } else {
-    const w: Prisma.CandidateWhereInput = overdueOnly ? { AND: [where, { nextFollowupAt: { lte: t } }] } : where;
-    [rows, total] = await Promise.all([
-      prisma.candidate.findMany({ where: w, include, orderBy: [{ nextFollowupAt: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }], skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
-      prisma.candidate.count({ where: w }),
-    ]);
-    rows.sort((a, b) => (dueOf(a) ?? Infinity) - (dueOf(b) ?? Infinity));
-  }
-
-  const [overdueCount, telecallers, firstCallTasks] = await Promise.all([
-    scope === "mine"
-      ? prisma.candidate.count({ where: { AND: [mineWhere, { OR: [{ nextFollowupAt: { lte: t } }, { tasks: { some: { ...OPEN_OUTREACH_TASK, assigneeId: actor.id, dueAt: { lte: t } } } }] }] } })
-      : prisma.candidate.count({ where: { stage: "VALIDATED", nextFollowupAt: { lte: t } } }),
-    isLeader && scope === "team" ? teamMembers("T1B") : Promise.resolve([]),
-    prisma.task.findMany({ where: { status: "OPEN", assigneeId: actor.id, refType: "first_call", candidateId: { in: rows.map((r) => r.id) } }, select: { candidateId: true } }),
-  ]);
-  const firstCallFor = new Set(firstCallTasks.map((x) => x.candidateId));
-  const telecallerOptions = telecallers.filter((u) => u.roles.some((r) => r.role === "telecaller")).map((u) => ({ value: u.id, label: u.name }));
+  const { scope, isLeader, canAddPortalLead, overdueOnly, page, pageSize, total, overdueCount, cap, telecallers: telecallerOptions, rows } = await api("GET /v1/queue", {
+    query: { scope: sp.scope === "team" ? "team" : undefined, overdue: sp.overdue === "1" || undefined, page: Math.max(1, Number(sp.page) || 1) },
+  });
+  const t = new Date();
 
   const qs = (p: Partial<SP>) => {
     const q = new URLSearchParams();
@@ -147,9 +89,9 @@ export default async function QueuePage({ searchParams }: { searchParams: Promis
           <Card pad={false}>
             <ul className="divide-y divide-slate-100">
               {rows.map((c) => {
-                const due = dueOf(c);
+                const due = c.due?.getTime() ?? null;
                 const overdue = due !== null && due <= t.getTime();
-                const last = c.contactAttempts[0];
+                const last = c.lastAttempt;
                 const nearCap = c.contactAttemptCount >= cap - 1;
                 return (
                   <li key={c.id} className={clsx("p-4", overdue && "bg-red-50/50")}>
@@ -195,7 +137,7 @@ export default async function QueuePage({ searchParams }: { searchParams: Promis
                           <div className="flex flex-wrap items-center gap-2">
                             <Select name="channel" defaultValue="CALL" options={["CALL", "WHATSAPP", "SMS", "EMAIL"]} aria-label="Channel" className="w-auto py-1.5" />
                             <Input name="notes" placeholder="Note (optional)" aria-label="Note" className="min-w-40 flex-1 py-1.5" />
-                            <Checkbox name="firstCall" label="First-time verified call" defaultChecked={firstCallFor.has(c.id)} />
+                            <Checkbox name="firstCall" label="First-time verified call" defaultChecked={c.firstCall} />
                           </div>
                           <div className="mt-2 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap">
                             {OUTCOME_BUTTONS.map((o) => (
@@ -208,7 +150,7 @@ export default async function QueuePage({ searchParams }: { searchParams: Promis
                           <span className="text-xs text-slate-500">Send enrolment link:</span>
                           <Submit name="channel" value="WHATSAPP" variant="ghost" className={clsx("border-slate-200", TOUCH)}>WhatsApp</Submit>
                           <Submit name="channel" value="SMS" variant="ghost" className={clsx("border-slate-200", TOUCH)}>SMS</Submit>
-                          {c.emailEnc && <Submit name="channel" value="EMAIL" variant="ghost" className={clsx("border-slate-200", TOUCH)}>Email</Submit>}
+                          {c.hasEmail && <Submit name="channel" value="EMAIL" variant="ghost" className={clsx("border-slate-200", TOUCH)}>Email</Submit>}
                         </ActionForm>
                       </div>
                     </div>
@@ -216,7 +158,7 @@ export default async function QueuePage({ searchParams }: { searchParams: Promis
                 );
               })}
             </ul>
-            <Pagination page={page} pageSize={PAGE_SIZE} total={total} hrefFor={(p) => qs({ page: String(p) })} />
+            <Pagination page={page} pageSize={pageSize} total={total} hrefFor={(p) => qs({ page: String(p) })} />
           </Card>
         )}
       </div>

@@ -1,15 +1,11 @@
 import Link from "next/link";
-import type { Prisma, Stage } from "@contracts";
-import { prisma } from "@/lib/db";
+import type { Stage, StageCountMap } from "@contracts";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
-import { now } from "@/lib/clock";
-import { addDays, formatDate, formatDateTime, periodRange, startOfIstDay } from "@contracts/shared/dates";
-import { hasRole, leaderTeams, leadScope, stagesOwnedBy } from "@/lib/rbac";
-import { EXIT_STAGES, PIPELINE, STAGE_LABEL } from "@/server/lifecycle/rules";
-import { SHEETS, formatKpi } from "@/kpi/definitions";
-import { computeSheet, sheetMembers } from "@/kpi/engine";
+import { addDays, formatDate, formatDateTime } from "@contracts/shared/dates";
+import { EXIT_STAGES, PIPELINE, STAGE_LABEL } from "@contracts/shared/lifecycle";
+import { formatKpi } from "@contracts/shared/kpi";
 import { PageHeader, Card, Stat, Table, Td, Badge, StageBadge, LinkButton, humanize } from "@/components/ui";
-import { headlineMetrics } from "../kpi/helpers";
 
 export const metadata = { title: "Dashboard" };
 
@@ -33,66 +29,20 @@ function StageCounts({ stages, counts, hrefFor }: { stages: Stage[]; counts: Map
   );
 }
 
-async function stageCounts(where: Prisma.CandidateWhereInput) {
-  const rows = await prisma.candidate.groupBy({ by: ["stage"], where, _count: { _all: true } });
-  return new Map(rows.map((r) => [r.stage, r._count._all]));
-}
+const toMap = (c: StageCountMap) => new Map(Object.entries(c) as [Stage, number][]);
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ denied?: string }> }) {
-  const actor = await requireActor();
-  const sp = await searchParams;
-  const t = now();
-  const dayStart = startOfIstDay(t);
-  const dayEnd = addDays(dayStart, 1);
-  const lt = leaderTeams(actor);
-  const isCoord = hasRole(actor, "admin", "ta_coordinator");
-  const isDA = hasRole(actor, "data_analyst");
-
-  const [openTasks, overdueTasks, topTasks, myStages, followupsToday] = await Promise.all([
-    prisma.task.count({ where: { assigneeId: actor.id, status: "OPEN" } }),
-    prisma.task.count({ where: { assigneeId: actor.id, status: "OPEN", dueAt: { lte: t } } }),
-    prisma.task.findMany({ where: { assigneeId: actor.id, status: "OPEN" }, orderBy: { dueAt: "asc" }, take: 5, include: { candidate: { select: { id: true, name: true, candidateCode: true } } } }),
-    stageCounts({ AND: [leadScope(actor), { ownerUserId: actor.id }] }),
-    prisma.task.findMany({
-      where: { assigneeId: actor.id, status: "OPEN", type: { in: ["FOLLOW_UP", "RECALL"] }, dueAt: { gte: dayStart, lt: dayEnd } },
-      orderBy: { dueAt: "asc" },
-      take: 10,
-      include: { candidate: { select: { id: true, name: true, candidateCode: true, stage: true } } },
-    }),
-  ]);
+  const [actor, sp, d] = await Promise.all([requireActor(), searchParams, api("GET /v1/dashboard")]);
+  const t = new Date();
+  const { openTasks, overdueTasks, topTasks, followupsToday, kpiSummaries, week } = d;
+  const myStages = toMap(d.myStages);
   const myTotal = [...myStages.values()].reduce((a, b) => a + b, 0);
-
-  // Team leaders: pipeline for owned stages + weekly KPI summary
-  const leaderStages = lt.length ? stagesOwnedBy(lt) : [];
-  const teamPipeline = lt.length ? await stageCounts({ stage: { in: leaderStages } }) : null;
-  const week = periodRange("WEEK", t);
-  const leaderSheets = SHEETS.filter((s) => lt.includes(s.team));
-  const kpiSummaries = await Promise.all(
-    leaderSheets.map(async (s) => {
-      const ids = (await sheetMembers(s.sheet)).map((m) => m.id);
-      const values = await computeSheet(s.sheet, week.start, week.end, ids);
-      return { s, values };
-    }),
-  );
-
-  // Coordinator / admin
-  const orgFunnel = isCoord ? await stageCounts({}) : null;
-  const [openFlags, overdueCapas, recentFlags] = isCoord
-    ? await Promise.all([
-        prisma.redFlag.count({ where: { status: { not: "CLOSED" } } }),
-        prisma.redFlag.count({ where: { status: { in: ["OPEN", "CAPA_SUGGESTED"] }, dueDate: { lt: t } } }),
-        prisma.redFlag.findMany({ where: { status: { not: "CLOSED" } }, orderBy: [{ dueDate: "asc" }, { raisedOn: "desc" }], take: 5, include: { agent: { select: { name: true } } } }),
-      ])
-    : [0, 0, []];
-
-  // Data analyst
-  const [mappingCount, stuckMapping, batches] = isDA
-    ? await Promise.all([
-        prisma.candidate.count({ where: { stage: "MAPPING" } }),
-        prisma.candidate.findMany({ where: { stage: "MAPPING" }, orderBy: { stageChangedAt: "asc" }, take: 5, select: { id: true, name: true, candidateCode: true, stageChangedAt: true, mainCategory: true } }),
-        prisma.importBatch.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
-      ])
-    : [0, [], []];
+  const leaderStages = d.teamPipeline?.stages ?? [];
+  const teamPipeline = d.teamPipeline ? toMap(d.teamPipeline.counts) : null;
+  const orgFunnel = d.coordinator ? toMap(d.coordinator.orgFunnel) : null;
+  const { openFlags, overdueCapas, recentFlags } = d.coordinator ?? { openFlags: 0, overdueCapas: 0, recentFlags: [] };
+  const isDA = !!d.dataAnalyst;
+  const { mappingCount, stuckMapping, batches } = d.dataAnalyst ?? { mappingCount: 0, stuckMapping: [], batches: [] };
 
   return (
     <>
@@ -149,13 +99,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       {kpiSummaries.length > 0 && (
         <div className="mb-4 grid gap-4 lg:grid-cols-2">
-          {kpiSummaries.map(({ s, values }) => (
+          {kpiSummaries.map((s) => (
             <Card key={s.sheet} title={`${s.title} · this week`} actions={<LinkButton size="sm" href={`/kpi?sheet=${s.sheet}`}>Full sheet</LinkButton>}>
               <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {headlineMetrics(s.sheet).map((d) => (
+                {s.metrics.map((d) => (
                   <div key={d.key} title={d.description || d.label}>
                     <dt className="text-xs text-slate-500">{d.label}</dt>
-                    <dd className="text-lg font-semibold tabular-nums text-slate-900">{formatKpi(values[d.key] ?? null, d.unit)}</dd>
+                    <dd className="text-lg font-semibold tabular-nums text-slate-900">{formatKpi(s.values[d.key] ?? null, d.unit)}</dd>
                   </div>
                 ))}
               </dl>

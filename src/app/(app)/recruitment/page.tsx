@@ -1,12 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { Prisma, Stage } from "@contracts";
-import { prisma } from "@/lib/db";
+import type { BoardLead, BoardSubmission, Stage } from "@contracts";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
-import { now, DAY } from "@/lib/clock";
 import { formatDate, formatDateTime, formatLakhs, toIstInputValue } from "@contracts/shared/dates";
-import { hasRole } from "@/lib/rbac";
-import { getAllSettings } from "@/lib/settings";
 import { PageHeader, Card, Table, Td, Badge, Input, Select, Field, Button, StageBadge, Empty, humanize } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import {
@@ -23,32 +20,14 @@ import {
 
 export const metadata = { title: "Interviews → joining" };
 
-const BOARD_STAGES: Stage[] = ["SOURCED", "SELECTED", "JOINED"];
 const IV_TONE = { SCHEDULED: "blue", ATTENDED: "green", NO_SHOW: "red", CANCELLED: "slate" } as const;
 
-async function loadLeads(vacScope: Prisma.VacancyWhereInput) {
-  return prisma.candidate.findMany({
-    where: { stage: { in: BOARD_STAGES }, anonymizedAt: null, submissions: { some: { vacancy: vacScope } } },
-    include: {
-      submissions: {
-        where: { vacancy: vacScope },
-        include: {
-          vacancy: { include: { clientOrg: { select: { name: true } } } },
-          interviews: { orderBy: { scheduledAt: "desc" } },
-          offers: { orderBy: { sentAt: "desc" }, include: { joining: true } },
-        },
-        orderBy: { submittedAt: "asc" },
-      },
-    },
-    orderBy: { stageChangedAt: "asc" },
-    take: 300,
-  });
-}
-type Lead = Awaited<ReturnType<typeof loadLeads>>[number];
-type Sub = Lead["submissions"][number];
+type Lead = BoardLead;
+type Sub = BoardSubmission;
+const DAY = 86_400_000;
 
 const subLabel = (s: Sub) => `${s.vacancy.code} · ${s.vacancy.title} @ ${s.vacancy.clientOrg.name}`;
-const dateValue = (d: Date | null | undefined) => toIstInputValue(d ?? now()).slice(0, 10);
+const dateValue = (d: Date | null | undefined) => toIstInputValue(d ?? new Date()).slice(0, 10);
 
 function LeadHeader({ lead, extra }: { lead: Lead; extra?: ReactNode }) {
   return (
@@ -218,7 +197,7 @@ function JoinedLead({ lead }: { lead: Lead }) {
   const found = lead.submissions.flatMap((s) => s.offers.map((o) => ({ o, sub: s }))).find(({ o }) => o.joining);
   if (!found) return <div className="p-4"><LeadHeader lead={lead} extra={<p className="text-sm text-slate-500">No joining record found.</p>} /></div>;
   const j = found.o.joining!;
-  const t = now().getTime();
+  const t = Date.now();
   const checkpoint = (day: 7 | 30) => {
     const due = new Date(j.joinedAt.getTime() + day * DAY);
     const doneAt = day === 7 ? j.retained7dAt : j.retained30dAt;
@@ -282,20 +261,9 @@ function JoinedLead({ lead }: { lead: Lead }) {
 }
 
 export default async function RecruitmentPage() {
-  const actor = await requireActor();
-  const isLeader = hasRole(actor, "team3_leader", "admin");
-  const vacScope: Prisma.VacancyWhereInput = isLeader ? { routedTeam: { in: ["T3A", "T3B", "T3C"] } } : { recruiterId: actor.id };
-  const since = new Date(now().getTime() - 30 * DAY);
-  const [leads, settings, outcomes] = await Promise.all([
-    loadLeads(vacScope),
-    getAllSettings(),
-    prisma.leadStageHistory.findMany({
-      where: { toStage: { in: ["SUCCESSFUL", "DROPPED"] }, at: { gte: since }, candidate: { submissions: { some: { vacancy: vacScope } } } },
-      include: { candidate: { select: { id: true, name: true, candidateCode: true, dropReason: true } }, byUser: { select: { name: true } } },
-      orderBy: { at: "desc" },
-      take: 50,
-    }),
-  ]);
+  await requireActor();
+  const { isLeader, leads, reminderHours, outcomes } = await api("GET /v1/recruitment");
+  const settings = { interviewReminderOffsetsHours: reminderHours };
   const by = (s: Stage) => leads.filter((l) => l.stage === s);
   const sourced = by("SOURCED");
   const selected = by("SELECTED");

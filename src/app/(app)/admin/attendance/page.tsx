@@ -1,12 +1,8 @@
-import type { TeamCode } from "@contracts";
-import { prisma } from "@/lib/db";
-import { now } from "@/lib/clock";
-import { addDays, formatDate, fromIstInputValue, istDateKey, startOfIstWeek } from "@contracts/shared/dates";
+import { api } from "@/lib/api/client";
+import { addDays, formatDate, istDateKey } from "@contracts/shared/dates";
 import { PageHeader, Card, Table, Td, Select, Button, LinkButton, Input } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { saveAttendanceAction } from "./actions";
-import { utcDay } from "./days";
-import { TEAM_CODES } from "../users/options";
 
 export const metadata = { title: "Attendance" };
 
@@ -14,21 +10,11 @@ const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default async function AttendancePage({ searchParams }: { searchParams: Promise<{ week?: string; team?: string }> }) {
   const sp = await searchParams;
-  const anchor = (sp.week && fromIstInputValue(sp.week)) || now();
-  const monday = startOfIstWeek(anchor);
-  const days = Array.from({ length: 7 }, (_, i) => istDateKey(addDays(monday, i)));
-  const team = TEAM_CODES.includes(sp.team as TeamCode) ? (sp.team as TeamCode) : undefined;
-  const [users, rows, teams] = await Promise.all([
-    prisma.user.findMany({
-      where: { active: true, roles: { some: team ? { team: { code: team } } : { role: { not: "admin" } } } },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, roles: { select: { team: { select: { code: true } } } } },
-    }),
-    prisma.attendance.findMany({ where: { date: { gte: utcDay(days[0]), lte: utcDay(days[6]) } } }),
-    prisma.team.findMany({ orderBy: { code: "asc" } }),
-  ]);
-  const present = new Set(rows.filter((r) => r.present).map((r) => `${r.userId}|${r.date.toISOString().slice(0, 10)}`));
-  const recorded = new Set(rows.map((r) => `${r.userId}|${r.date.toISOString().slice(0, 10)}`));
+  const grid = await api("GET /v1/admin/attendance", { query: { week: sp.week, team: sp.team } });
+  const { monday, days, users, teams } = grid;
+  const team = grid.team ?? undefined;
+  const present = new Set(grid.present);
+  const recorded = new Set(grid.recorded);
   const link = (w: string) => `/admin/attendance?week=${w}${team ? `&team=${team}` : ""}`;
 
   return (
@@ -52,7 +38,7 @@ export default async function AttendancePage({ searchParams }: { searchParams: P
                 <Td className="whitespace-nowrap">
                   <input type="hidden" name="u" value={u.id} />
                   <span className="font-medium text-slate-900">{u.name}</span>{" "}
-                  <span className="text-xs text-slate-400">{[...new Set(u.roles.map((r) => r.team.code))].join(", ")}</span>
+                  <span className="text-xs text-slate-400">{u.teamCodes.join(", ")}</span>
                 </Td>
                 {days.map((d, i) => {
                   const k = `${u.id}|${d}`;

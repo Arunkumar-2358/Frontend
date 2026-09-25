@@ -1,30 +1,25 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/db";
-import { requireActor } from "@/lib/session";
-import { hasRole } from "@/lib/rbac";
-import { audit } from "@/lib/audit";
-import { decrypt } from "@/lib/crypto";
+import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { formatMobile } from "@contracts/shared/phone";
 import { formatDateTime } from "@contracts/shared/dates";
-import { logPiiView } from "@/server/candidates/service";
 import { PageHeader, Card, Empty, LinkButton, btnClass } from "@/components/ui";
 
 export const metadata = { title: "Recall missed call" };
 
-/** Reveal a missed caller's number for dialling (logged as a PII view). */
+/** Reveal a missed caller's number for dialling (the API logs it as a PII view). */
 export default async function RecallCallPage({ params }: { params: Promise<{ id: string }> }) {
-  const actor = await requireActor();
   const { id } = await params;
-  const mc = await prisma.missedCall.findUnique({ where: { id } });
-  if (!mc) notFound();
-  const allowed = hasRole(actor, "team1_leader", "admin") || (hasRole(actor, "telecaller") && (mc.assignedToId === actor.id || mc.assignedToId === null));
-  if (!allowed) return <Empty title="No access">This missed call is assigned to another tele-caller.</Empty>;
-
-  if (mc.candidateId) await logPiiView(actor, mc.candidateId);
-  else await audit(actor, "VIEW_PII", "missed_call", mc.id);
-  const mobile = decrypt(mc.fromMobileEnc) ?? "";
-  const lead = mc.candidateId ? await prisma.candidate.findUnique({ where: { id: mc.candidateId }, select: { id: true, name: true, candidateCode: true } }) : null;
+  let mc;
+  try {
+    mc = await api("GET /v1/missed-calls/{id}/call", { params: { id } });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    if (e instanceof ApiError && e.status === 403) return <Empty title="No access">This missed call is assigned to another tele-caller.</Empty>;
+    throw e;
+  }
+  const { mobile, lead } = mc;
 
   return (
     <>

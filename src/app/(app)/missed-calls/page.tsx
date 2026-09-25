@@ -1,19 +1,15 @@
 import Link from "next/link";
 import clsx from "clsx";
-import type { Prisma } from "@contracts";
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
-import { now } from "@/lib/clock";
-import { formatDateTime, startOfIstWeek, toIstInputValue } from "@contracts/shared/dates";
-import { hasRole } from "@/lib/rbac";
+import { formatDateTime, toIstInputValue } from "@contracts/shared/dates";
+import { hasRole } from "@contracts/shared/rbac";
 import { MAIN_CATEGORIES } from "@contracts/shared/fields";
 import { PageHeader, Card, Badge, Input, Select, Field, Checkbox, Stat, Empty, Pagination, StageBadge, btnClass } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { logMissedCallAction, recallAction } from "./actions";
 
 export const metadata = { title: "Missed calls" };
-
-const PAGE_SIZE = 30;
 
 type SP = { tab?: string; page?: string };
 
@@ -23,38 +19,17 @@ export default async function MissedCallsPage({ searchParams }: { searchParams: 
   const actor = await requireActor();
   if (!hasRole(actor, "telecaller", "team1_leader", "admin")) return <Empty title="No access">The missed-call inbox is for Team 1b.</Empty>;
   const sp = await searchParams;
-  const isLeader = hasRole(actor, "team1_leader", "admin");
-  const tab = sp.tab === "closed" ? "closed" : "open";
-  const page = Math.max(1, Number(sp.page) || 1);
-  const t = now();
-
-  const mine: Prisma.MissedCallWhereInput = isLeader ? {} : { assignedToId: actor.id };
-  const where: Prisma.MissedCallWhereInput = { ...mine, closedAt: tab === "closed" ? { not: null } : null };
-  const week: Prisma.MissedCallWhereInput = { ...mine, receivedAt: { gte: startOfIstWeek(t) } };
-
-  const [calls, total, openCount, fMissed, fRecalled, fAnswered, fLink, fEnrolled] = await Promise.all([
-    prisma.missedCall.findMany({ where, orderBy: { receivedAt: tab === "open" ? "asc" : "desc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
-    prisma.missedCall.count({ where }),
-    prisma.missedCall.count({ where: { ...mine, closedAt: null } }),
-    prisma.missedCall.count({ where: week }),
-    prisma.missedCall.count({ where: { ...week, recallAttemptedAt: { not: null } } }),
-    prisma.missedCall.count({ where: { ...week, answered: true } }),
-    prisma.missedCall.count({ where: { ...week, linkSent: true } }),
-    prisma.missedCall.count({ where: { ...week, enrolled: true } }),
-  ]);
-
-  // MissedCall has no Prisma relations; look up leads, assignees and recall tasks by id.
-  const leadIds = [...new Set(calls.map((c) => c.candidateId).filter((x): x is string => !!x))];
-  const userIds = [...new Set(calls.map((c) => c.assignedToId).filter((x): x is string => !!x))];
-  const [leads, users, tasks] = await Promise.all([
-    prisma.candidate.findMany({ where: { id: { in: leadIds } }, select: { id: true, name: true, candidateCode: true, stage: true, isCold: true } }),
-    isLeader ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
-    prisma.task.findMany({ where: { refType: "missed_call", refId: { in: calls.map((c) => c.id) }, status: "OPEN" }, orderBy: { dueAt: "asc" }, select: { refId: true, dueAt: true } }),
-  ]);
-  const leadBy = new Map(leads.map((l) => [l.id, l]));
-  const userBy = new Map(users.map((u) => [u.id, u.name]));
-  const recallDue = new Map<string, Date>();
-  for (const task of tasks) if (task.refId && !recallDue.has(task.refId)) recallDue.set(task.refId, task.dueAt);
+  const {
+    isLeader,
+    tab,
+    page,
+    pageSize,
+    total,
+    openCount,
+    funnel: { missed: fMissed, recalled: fRecalled, answered: fAnswered, linkSent: fLink, enrolled: fEnrolled },
+    calls,
+  } = await api("GET /v1/missed-calls", { query: { tab: sp.tab === "closed" ? "closed" : undefined, page: Math.max(1, Number(sp.page) || 1) } });
+  const t = new Date();
 
   const tabHref = (x: "open" | "closed") => (x === "closed" ? "/missed-calls?tab=closed" : "/missed-calls");
 
@@ -101,8 +76,8 @@ export default async function MissedCallsPage({ searchParams }: { searchParams: 
             <Card pad={false}>
               <ul className="divide-y divide-slate-100">
                 {calls.map((mc) => {
-                  const lead = mc.candidateId ? leadBy.get(mc.candidateId) : undefined;
-                  const due = recallDue.get(mc.id);
+                  const lead = mc.lead;
+                  const due = mc.recallDue;
                   const overdue = !mc.closedAt && !!due && due.getTime() <= t.getTime();
                   return (
                     <li key={mc.id} className={clsx("p-4", overdue && "bg-red-50/40")}>
@@ -126,7 +101,7 @@ export default async function MissedCallsPage({ searchParams }: { searchParams: 
                               <Badge tone="amber">Unknown caller</Badge>
                             )}
                           </div>
-                          {isLeader && <div className="mt-1 text-xs text-slate-400">Assigned: {mc.assignedToId ? userBy.get(mc.assignedToId) ?? "—" : "unassigned"}</div>}
+                          {isLeader && <div className="mt-1 text-xs text-slate-400">Assigned: {mc.assignedToId ? mc.assigneeName ?? "—" : "unassigned"}</div>}
                           {mc.notes && <div className="mt-1 text-xs text-slate-500">“{mc.notes}”</div>}
                         </div>
 
@@ -170,7 +145,7 @@ export default async function MissedCallsPage({ searchParams }: { searchParams: 
                   );
                 })}
               </ul>
-              <Pagination page={page} pageSize={PAGE_SIZE} total={total} hrefFor={(p) => `${tabHref(tab)}${tab === "closed" ? "&" : "?"}page=${p}`} />
+              <Pagination page={page} pageSize={pageSize} total={total} hrefFor={(p) => `${tabHref(tab)}${tab === "closed" ? "&" : "?"}page=${p}`} />
             </Card>
           )}
         </div>

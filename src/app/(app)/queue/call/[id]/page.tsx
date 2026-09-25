@@ -1,25 +1,23 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/db";
-import { requireActor } from "@/lib/session";
-import { canEditLead, canReadAll } from "@/lib/rbac";
+import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { formatMobile } from "@contracts/shared/phone";
-import { decryptCandidate, logPiiView } from "@/server/candidates/service";
 import { PageHeader, Card, Empty, StageBadge, LinkButton, btnClass } from "@/components/ui";
 
 export const metadata = { title: "Call lead" };
 
-/** Reveal a lead's number for dialling from a phone (logged as a PII view). */
+/** Reveal a lead's number for dialling from a phone (the API logs it as a PII view). */
 export default async function CallLeadPage({ params }: { params: Promise<{ id: string }> }) {
-  const actor = await requireActor();
   const { id } = await params;
-  const lead = await prisma.candidate.findUnique({ where: { id } });
-  if (!lead) notFound();
-  const hasTask = (await prisma.task.count({ where: { candidateId: id, assigneeId: actor.id, status: "OPEN" } })) > 0;
-  if (!canEditLead(actor, lead) && !hasTask && !canReadAll(actor)) return <Empty title="No access">You can only call leads you own or have a task for.</Empty>;
-
-  await logPiiView(actor, id);
-  const c = decryptCandidate(lead);
+  let c;
+  try {
+    c = await api("GET /v1/queue/{id}/call", { params: { id } });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    if (e instanceof ApiError && e.status === 403) return <Empty title="No access">You can only call leads you own or have a task for.</Empty>;
+    throw e;
+  }
   const mobile = c.mobile ?? "";
   const alt = c.altMobile;
 

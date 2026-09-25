@@ -1,19 +1,13 @@
 import Link from "next/link";
-import type { Prisma, RedFlagStatus, TeamCode } from "@contracts";
-import { prisma } from "@/lib/db";
-import { requireActor } from "@/lib/session";
-import { now } from "@/lib/clock";
-import { formatDate, periodRange } from "@contracts/shared/dates";
-import { canManageRedFlags } from "@/lib/rbac";
-import { SHEETS, formatKpi, metricsFor } from "@/kpi/definitions";
+import type { RedFlagStatus } from "@contracts";
+import { api } from "@/lib/api/client";
+import { formatDate } from "@contracts/shared/dates";
 import { PageHeader, Card, Table, Td, Badge, Select, Button, Pagination, LinkButton } from "@/components/ui";
 import { RaiseRedFlagForm } from "./raise-form";
-import { redFlagScope, STATUS_LABEL, STATUS_TONE } from "./scope";
+import { STATUS_LABEL, STATUS_TONE } from "./scope";
 
 export const metadata = { title: "Red flags & CAPA" };
 
-const PAGE_SIZE = 25;
-const TEAM_CODES: TeamCode[] = ["T1A", "T1B", "T2", "T3A", "T3B", "T3C", "T4"];
 const STATUSES: RedFlagStatus[] = ["OPEN", "CAPA_SUGGESTED", "IMPLEMENTED", "CLOSED"];
 const PERIODS = [
   { value: "this_week", label: "This week" },
@@ -24,62 +18,13 @@ const PERIODS = [
 
 type SP = { team?: string; status?: string; source?: string; period?: string; page?: string };
 
-function periodFilter(p: string | undefined): { gte: Date; lt: Date } | undefined {
-  if (!p) return undefined;
-  const kind = p.endsWith("month") ? "MONTH" : "WEEK";
-  const cur = periodRange(kind, now());
-  const r = p.startsWith("last") ? periodRange(kind, new Date(cur.start.getTime() - 60_000)) : cur;
-  return { gte: r.start, lt: r.end };
-}
-
 export default async function RedFlagsPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const actor = await requireActor();
   const sp = await searchParams;
-  const manage = canManageRedFlags(actor);
-  const page = Math.max(1, Number(sp.page) || 1);
-  const range = periodFilter(sp.period);
-  const where: Prisma.RedFlagWhereInput = {
-    AND: [
-      redFlagScope(actor),
-      {
-        ...(sp.team && TEAM_CODES.includes(sp.team as TeamCode) ? { teamCode: sp.team as TeamCode } : {}),
-        ...(sp.status === "NOT_CLOSED" ? { status: { not: "CLOSED" } } : sp.status && STATUSES.includes(sp.status as RedFlagStatus) ? { status: sp.status as RedFlagStatus } : {}),
-        ...(sp.source === "auto" ? { autoRaised: true } : sp.source === "manual" ? { autoRaised: false } : {}),
-        ...(range ? { raisedOn: range } : {}),
-      },
-    ],
-  };
-  const [total, flags, teams] = await Promise.all([
-    prisma.redFlag.count({ where }),
-    prisma.redFlag.findMany({
-      where,
-      orderBy: [{ raisedOn: "desc" }],
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      include: { agent: { select: { name: true } }, actionOwner: { select: { name: true } } },
-    }),
-    prisma.team.findMany({ orderBy: { code: "asc" } }),
-  ]);
+  const { manage, page, pageSize: PAGE_SIZE, total, flags, teams, raise: raiseProps } = await api("GET /v1/red-flags", {
+    query: { team: sp.team, status: sp.status, source: sp.source, period: sp.period, page: Math.max(1, Number(sp.page) || 1) },
+  });
 
-  let raiseProps: Parameters<typeof RaiseRedFlagForm>[0] | null = null;
-  if (manage) {
-    const [users, targets] = await Promise.all([
-      prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, roles: { select: { team: { select: { code: true } } } } } }),
-      prisma.kpiTarget.findMany({ where: { periodType: "WEEK" } }),
-    ]);
-    raiseProps = {
-      teams: teams.map((t) => ({ code: t.code, name: t.name })),
-      members: users.map((u) => ({ id: u.id, name: u.name, teams: [...new Set(u.roles.map((r) => r.team.code))] })),
-      kpis: SHEETS.flatMap((s) =>
-        metricsFor(s.sheet).map((d) => {
-          const t = targets.find((x) => x.metricKey === d.key && x.teamCode === s.team);
-          return { key: d.key, label: d.label, team: s.team, sheetTitle: s.title, target: t ? `${t.comparator === "lte" ? "≤" : "≥"} ${formatKpi(t.target, d.unit)}` : undefined };
-        }),
-      ),
-    };
-  }
-
-  const t = now();
+  const t = new Date();
   const qs = (p: number) => {
     const u = new URLSearchParams(Object.entries({ ...sp, page: String(p) }).filter((e): e is [string, string] => !!e[1]));
     return `/red-flags?${u.toString()}`;

@@ -1,5 +1,8 @@
-/** Role-aware navigation (edge-safe: no DB imports). Also used by middleware for route gating. */
-import type { Role } from "@contracts";
+/**
+ * Who may open each area of the app. The web uses it for the menu and route gating;
+ * the API enforces the same table on every endpoint in an area (see src/http/route.ts).
+ */
+import type { Role } from "../models";
 
 export type NavItem = { href: string; label: string; roles: Role[] | "all"; group: string };
 

@@ -1,11 +1,11 @@
 import Link from "next/link";
 import clsx from "clsx";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { requireActor } from "@/lib/session";
 import { formatDateTime } from "@contracts/shared/dates";
-import { hasRole } from "@/lib/rbac";
-import { evaluationResults } from "@/server/eval/service";
+import { hasRole } from "@contracts/shared/rbac";
 import { PageHeader, Card, Badge, LinkButton } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { saveScoresAction } from "../actions";
@@ -16,11 +16,19 @@ export const metadata = { title: "Scorecard" };
 const SCORE_OPTIONS = [1, 2, 3, 4, 5];
 const fmt = (n: number | null | undefined, d = 2) => (n === null || n === undefined ? "—" : n.toLocaleString("en-IN", { maximumFractionDigits: d }));
 
+async function load(id: string) {
+  try {
+    return await api("GET /v1/evaluations/{id}", { params: { id } });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
+  }
+}
+
 export default async function EvaluationPage({ params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   const { id } = await params;
-  if (!(await prisma.evaluation.findUnique({ where: { id }, select: { id: true } }))) notFound();
-  const { evaluation, criteria, leaves, results } = await evaluationResults(id);
+  const { evaluation, criteria, leaves, results } = await load(id);
   const canScore = hasRole(actor, "admin", "recruiter", "team3_leader");
   const parentIds = new Set(criteria.filter((c) => c.parentId).map((c) => c.parentId));
   const topLevel = criteria.filter((c) => !c.parentId);
@@ -54,7 +62,7 @@ export default async function EvaluationPage({ params }: { params: Promise<{ id:
           <div className="no-print flex flex-wrap gap-2">
             <LinkButton href="/evaluations">← Scorecards</LinkButton>
             <PrintButton />
-            <a href={`/api/evaluations/${evaluation.id}/export`} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-xs hover:bg-slate-50">
+            <a href={`/api/v1/evaluations/${evaluation.id}/export`} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-xs hover:bg-slate-50">
               Export .xlsx
             </a>
           </div>

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/session-token";
-import { canAccessPath } from "@/lib/nav";
+import { canAccessPath } from "@contracts/shared/access";
 
 // Machine-to-machine endpoints authenticate themselves in the API (token, HMAC, cron secret).
 const PUBLIC = ["/login", "/api/webhooks", "/api/telephony", "/api/cron", "/api/v1/webhooks", "/api/v1/telephony", "/api/v1/cron", "/_next", "/favicon", "/sw.js", "/manifest.webmanifest"];

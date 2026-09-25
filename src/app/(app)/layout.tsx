@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getShell, logout, requireActor } from "@/lib/session";
-import { navFor } from "@/lib/nav";
+import { navFor } from "@contracts/shared/access";
 import { timeAgo } from "@contracts/shared/ago";
 import { AppShell } from "@/components/shell/app-shell";
 import { ThemeSync } from "@/components/theme-watcher";

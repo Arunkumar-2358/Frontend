@@ -1,19 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { DropReason } from "@contracts";
-import { prisma } from "@/lib/db";
+import type { DropReason, LeadDetail } from "@contracts";
+import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { requireActor } from "@/lib/session";
-import { now } from "@/lib/clock";
 import { formatDate, formatDateTime, toIstInputValue } from "@contracts/shared/dates";
 import { formatMobile } from "@contracts/shared/phone";
-import { STAGE_OWNER_TEAMS, canEditLead, hasRole, isAdmin, isStageLeader, isStageTeamMember, leadScope } from "@/lib/rbac";
-import { decryptCandidate, logPiiView } from "@/server/candidates/service";
 import { fieldLabel, isNtSourceFor } from "@contracts/shared/fields";
-import { EXIT_STAGES, NEXT_STAGE, STAGE_LABEL, allowedTargets, ruleFor } from "@/server/lifecycle/rules";
-import { profileChecklist } from "@/server/scrutiny/service";
-import { OUTCOME_LABEL } from "@/server/outreach/service";
-import { teamMembers } from "@/server/users/assignment";
-import { MAX_RESUME_BYTES, MAX_VIDEO_BYTES } from "@/server/storage";
+import { EXIT_STAGES, NEXT_STAGE, STAGE_LABEL } from "@contracts/shared/lifecycle";
+import { OUTCOME_LABEL } from "@contracts/shared/labels";
 import { PageHeader, Card, Table, Td, Badge, StageBadge, Progress, Field, Input, Select, Textarea, Checkbox, LinkButton, Empty, humanize, type Tone } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { ProfileEditor } from "./profile-editor";
@@ -26,63 +21,41 @@ const DROP_REASONS: DropReason[] = ["INTERVIEW_NO_SHOW", "REJECTED", "OFFER_DECL
 const DECISION_TONE: Record<string, Tone> = { PENDING: "slate", SHORTLISTED: "green", REJECTED: "red" };
 const MSG_TONE: Record<string, Tone> = { QUEUED: "slate", SENT: "green", FAILED: "red" };
 
-const fileHref = (key: string) => `/api/files/${key.split("/").map(encodeURIComponent).join("/")}`;
+const fileHref = (key: string) => `/api/v1/files/${key.split("/").map(encodeURIComponent).join("/")}`;
 
 export default async function LeadPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ created?: string; gate?: string }> }) {
-  const actor = await requireActor();
+  await requireActor();
   const { id } = await params;
   const sp = await searchParams;
 
-  const raw = await prisma.candidate.findFirst({
-    where: { AND: [{ id }, leadScope(actor)] },
-    include: { owner: { select: { id: true, name: true } }, verifiedBy: { select: { name: true } }, importBatch: { select: { id: true, fileName: true } } },
-  });
-  if (!raw) {
+  // The API decrypts the contact details and records the PII view (DPDP access log).
+  let detail: LeadDetail;
+  try {
+    detail = await api("GET /v1/leads/{id}", { params: { id } });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
     // Tell "no such lead" apart from "this lead exists, but not for you" — the second one
     // is reachable from a link elsewhere (e.g. a Team 2 match preview) and deserves a clear
     // message rather than a bare 404.
-    const exists = await prisma.candidate.findUnique({ where: { id }, select: { id: true } });
-    if (!exists) notFound();
-    return (
-      <>
-        <PageHeader title="Lead" />
-        <Empty title="No access">This lead is outside what your role can see — it may not have reached your team yet, or belongs to another team&apos;s pipeline.</Empty>
-      </>
-    );
+    if (e instanceof ApiError && e.status === 403) {
+      return (
+        <>
+          <PageHeader title="Lead" />
+          <Empty title="No access">This lead is outside what your role can see — it may not have reached your team yet, or belongs to another team&apos;s pipeline.</Empty>
+        </>
+      );
+    }
+    throw e;
   }
-  const c = decryptCandidate(raw);
-  await logPiiView(actor, id);
+  const { lead: c, checklist: check, can, transitions: targets, tasks, attempts, history, submissions, messages, deletionRequests, audits, members, fileLimits } = detail;
+  const canEdit = can.edit;
+  const stageLeader = can.stageLeader;
+  const showAudit = can.viewAudit;
 
-  const canEdit = canEditLead(actor, c);
-  const stageLeader = isStageLeader(actor, c.stage);
-  const showAudit = hasRole(actor, "admin", "ta_coordinator");
-
-  const [check, tasks, attempts, history, submissions, messages, deletionRequests, audits, members, myOpenTask] = await Promise.all([
-    profileChecklist(id),
-    prisma.task.findMany({ where: { candidateId: id, status: "OPEN" }, include: { assignee: { select: { name: true } } }, orderBy: { dueAt: "asc" } }),
-    prisma.contactAttempt.findMany({ where: { candidateId: id }, include: { byUser: { select: { name: true } } }, orderBy: { at: "desc" }, take: 100 }),
-    prisma.leadStageHistory.findMany({ where: { candidateId: id }, include: { byUser: { select: { name: true } } }, orderBy: { at: "desc" } }),
-    prisma.submission.findMany({
-      where: { candidateId: id },
-      include: {
-        vacancy: { select: { id: true, code: true, title: true, clientOrg: { select: { name: true } } } },
-        interviews: { orderBy: { scheduledAt: "desc" } },
-        offers: { include: { joining: true }, orderBy: { sentAt: "desc" } },
-      },
-      orderBy: { submittedAt: "desc" },
-    }),
-    prisma.message.findMany({ where: { candidateId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
-    isAdmin(actor) ? prisma.dataDeletionRequest.findMany({ where: { candidateId: id }, orderBy: { requestedAt: "desc" } }) : Promise.resolve([]),
-    showAudit ? prisma.auditLog.findMany({ where: { entityType: "candidate", entityId: id }, orderBy: { at: "desc" }, take: 60 }) : Promise.resolve([]),
-    stageLeader && STAGE_OWNER_TEAMS[c.stage].length ? teamMembers(STAGE_OWNER_TEAMS[c.stage]) : Promise.resolve([]),
-    prisma.task.count({ where: { candidateId: id, assigneeId: actor.id, status: "OPEN" } }),
-  ]);
-
-  const showStagePanel = canEdit || isStageTeamMember(actor, c.stage);
-  const canLogContact = canEdit || myOpenTask > 0;
-  const targets = allowedTargets(c.stage);
+  const showStagePanel = can.stagePanel;
+  const canLogContact = can.logContact;
   const isNt = isNtSourceFor(c.source);
-  const t = now().getTime();
+  const t = Date.now();
 
   return (
     <>
@@ -172,7 +145,7 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
                       <Input name="notes" placeholder="What happened on the call / message" />
                     </Field>
                     <Field label="Next follow-up" hint="Leave blank for the default">
-                      <Input name="nextFollowupAt" type="datetime-local" min={toIstInputValue(now())} />
+                      <Input name="nextFollowupAt" type="datetime-local" min={toIstInputValue(new Date())} />
                     </Field>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -342,8 +315,8 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
                 <p className="text-sm text-slate-500">{STAGE_LABEL[c.stage]} is a terminal stage.</p>
               ) : (
                 <div className="space-y-4">
-                  {targets.map((to) => {
-                    const rule = ruleFor(c.stage, to);
+                  {targets.map((rule) => {
+                    const to = rule.to;
                     const isNext = NEXT_STAGE[c.stage] === to;
                     const isExit = EXIT_STAGES.includes(to);
                     return (
@@ -359,9 +332,9 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-xs font-medium text-slate-500">{isNext ? "Next" : "Exit"}</span>
                           <StageBadge stage={to} />
-                          {rule?.performer === "stage_leader" && <Badge tone="violet">Leader sign-off</Badge>}
+                          {rule.performer === "stage_leader" && <Badge tone="violet">Leader sign-off</Badge>}
                         </div>
-                        {rule?.description && <p className="mt-1.5 text-xs text-slate-500">{rule.description}</p>}
+                        {rule.description && <p className="mt-1.5 text-xs text-slate-500">{rule.description}</p>}
                         <div className="mt-2 space-y-2">
                           {to === "DROPPED" && (
                             <Select name="dropReason" required placeholder="Drop reason…" options={DROP_REASONS} />
@@ -409,7 +382,7 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
                 </div>
                 {canEdit && (
                   <div className="mt-2">
-                    <FileUpload leadId={c.id} kind="resume" label={c.resumeFileKey ? "Replace resume" : "Upload resume"} accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" maxBytes={MAX_RESUME_BYTES} />
+                    <FileUpload leadId={c.id} kind="resume" label={c.resumeFileKey ? "Replace resume" : "Upload resume"} accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" maxBytes={fileLimits.resumeBytes} />
                     <p className="mt-1 text-xs text-slate-400">PDF, DOC or DOCX · up to 10 MB</p>
                   </div>
                 )}
@@ -423,7 +396,7 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
                 )}
                 {canEdit && (
                   <div className="mt-2">
-                    <FileUpload leadId={c.id} kind="video" label={c.introVideoKey ? "Replace video" : "Upload video"} accept="video/*" maxBytes={MAX_VIDEO_BYTES} />
+                    <FileUpload leadId={c.id} kind="video" label={c.introVideoKey ? "Replace video" : "Upload video"} accept="video/*" maxBytes={fileLimits.videoBytes} />
                     <p className="mt-1 text-xs text-slate-400">About 1 minute · up to 50 MB</p>
                   </div>
                 )}
@@ -440,7 +413,7 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
                   required
                   defaultValue={c.ownerUserId ?? ""}
                   placeholder="Choose team member…"
-                  options={members.map((m) => ({ value: m.id, label: `${m.name} (${[...new Set(m.roles.map((r) => r.team.code))].join(", ")})` }))}
+                  options={members.map((m) => ({ value: m.id, label: `${m.name} (${m.teams.join(", ")})` }))}
                 />
                 <Submit size="sm" variant="secondary">Reassign</Submit>
                 <p className="text-xs text-slate-400">Open tasks for the current owner move with the lead.</p>
@@ -470,7 +443,7 @@ export default async function LeadPage({ params, searchParams }: { params: Promi
             )}
           </Card>
 
-          {isAdmin(actor) && (
+          {can.admin && (
             <Card title="Data deletion (DPDP)">
               {deletionRequests.length > 0 && (
                 <ul className="mb-3 space-y-1 text-sm">

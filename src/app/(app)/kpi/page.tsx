@@ -1,26 +1,21 @@
 import Link from "next/link";
 import clsx from "clsx";
-import { prisma } from "@/lib/db";
-import { requireActor } from "@/lib/session";
-import { now } from "@/lib/clock";
+import { api } from "@/lib/api/client";
 import { formatDate, formatDateTime } from "@contracts/shared/dates";
-import { SHEETS, formatKpi, metricsFor, type Sheet } from "@/kpi/definitions";
-import { computeSheetTable } from "@/kpi/engine";
-import { redFlagSummary } from "@/server/redflags/service";
+import { SHEETS, formatKpi } from "@contracts/shared/kpi";
 import { PageHeader, Card, Table, Td, Empty, LinkButton, Badge, Input, Select, Button } from "@/components/ui";
 import { AgentChart } from "./agent-chart";
-import { canExportKpis, chartMetrics, parsePeriod, seesAllKpis, visibleSheets } from "./helpers";
 
 export const metadata = { title: "KPI analysis" };
 
 type SP = { period?: string; date?: string; sheet?: string };
 
 export default async function KpiPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const actor = await requireActor();
   const sp = await searchParams;
-  const p = parsePeriod(sp);
-  const sheets = visibleSheets(actor);
-  if (!sheets.length) {
+  const data = await api("GET /v1/kpi", { query: { period: sp.period, date: sp.date, sheet: sp.sheet } });
+  const { period: p, table, targets, flags, snapshotFrozenAt, canExport, seesAll: all } = data;
+  const sheets = SHEETS.filter((s) => data.sheets.includes(s.sheet));
+  if (!data.sheet || !table || !flags) {
     return (
       <>
         <PageHeader title="KPI analysis" />
@@ -28,24 +23,15 @@ export default async function KpiPage({ searchParams }: { searchParams: Promise<
       </>
     );
   }
-  const meta = sheets.find((s) => s.sheet === sp.sheet) ?? sheets[0];
-  const sheet: Sheet = meta.sheet;
-  const all = seesAllKpis(actor);
-
-  const [table, targets, snapshot, flags] = await Promise.all([
-    computeSheetTable(sheet, p.start, p.end, all ? {} : { onlyUserId: actor.id }),
-    prisma.kpiTarget.findMany({ where: { periodType: p.periodType, teamCode: meta.team } }),
-    prisma.kpiSnapshot.findFirst({ where: { periodType: p.periodType, periodStart: p.start, teamCode: meta.team }, orderBy: { frozenAt: "desc" } }),
-    redFlagSummary([meta.team], p.start, p.end),
-  ]);
-  const defs = metricsFor(sheet);
+  const sheet = data.sheet;
+  const defs = data.metrics;
   const targetOf = new Map(targets.map((t) => [t.metricKey, t]));
   const missed = (key: string, v: number | null | undefined) => {
     const t = targetOf.get(key);
     if (!t || v === null || v === undefined) return false;
     return t.comparator === "lte" ? v > t.target : v < t.target;
   };
-  const isPast = p.end.getTime() <= now().getTime();
+  const isPast = p.isPast;
 
   const qs = (over: Partial<SP>) => {
     const merged: Record<string, string | undefined> = { period: p.periodType, date: p.dateKey, sheet, ...over };
@@ -53,7 +39,7 @@ export default async function KpiPage({ searchParams }: { searchParams: Promise<
     return `/kpi?${u.toString()}`;
   };
 
-  const chartDefs = chartMetrics(sheet);
+  const chartDefs = data.chartMetrics;
   const chartSeries = chartDefs.map((d) => ({ key: d.key.replace(/\./g, "_"), label: d.label }));
   const chartData = table.members.map((m) => ({ name: m.name, ...Object.fromEntries(chartDefs.map((d) => [d.key.replace(/\./g, "_"), m.values[d.key] ?? 0])) }));
 
@@ -62,7 +48,7 @@ export default async function KpiPage({ searchParams }: { searchParams: Promise<
       <PageHeader
         title="KPI analysis"
         subtitle={`${p.periodType === "WEEK" ? "Week (Mon–Sun)" : "Month"} · ${formatDate(p.start)} to ${formatDate(p.lastDay)} · computed live from events`}
-        actions={canExportKpis(actor) ? <LinkButton variant="primary" href={`/api/kpi/export?period=${p.periodType}&date=${p.dateKey}`}>Export to Excel</LinkButton> : undefined}
+        actions={canExport ? <LinkButton variant="primary" href={`/api/v1/kpi/export?period=${p.periodType}&date=${p.dateKey}`}>Export to Excel</LinkButton> : undefined}
       />
 
       <Card className="mb-4">
@@ -97,9 +83,9 @@ export default async function KpiPage({ searchParams }: { searchParams: Promise<
         ))}
       </div>
 
-      {snapshot ? (
+      {snapshotFrozenAt ? (
         <p className="mb-3 text-sm text-slate-500">
-          <Badge tone="violet">Frozen</Badge> This period was frozen at {formatDateTime(snapshot.frozenAt)}. Values below are recomputed live from events; the snapshot is the frozen record.
+          <Badge tone="violet">Frozen</Badge> This period was frozen at {formatDateTime(snapshotFrozenAt)}. Values below are recomputed live from events; the snapshot is the frozen record.
         </p>
       ) : isPast ? (
         <p className="mb-3 text-sm text-slate-400">This period has not been frozen yet.</p>

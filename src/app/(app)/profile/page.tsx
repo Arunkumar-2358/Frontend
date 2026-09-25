@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { prisma } from "@/lib/db";
-import { requireActor } from "@/lib/session";
-import { now } from "@/lib/clock";
-import { formatDate, formatDateTime, periodRange } from "@contracts/shared/dates";
+import { api } from "@/lib/api/client";
+import { formatDate, formatDateTime } from "@contracts/shared/dates";
 import { formatMobile } from "@contracts/shared/phone";
 import { STAGE_LABEL } from "@contracts/shared/lifecycle";
 import { PageHeader, Card, Field, Input, Badge, Stat, Dl, humanize, Table, Td } from "@/components/ui";
@@ -20,19 +18,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 export default async function ProfilePage() {
-  const actor = await requireActor();
-  const week = periodRange("WEEK", now());
-  const [user, openTasks, overdue, owned, byStage, contactsThisWeek, doneThisWeek, attendance, activity] = await Promise.all([
-    prisma.user.findUniqueOrThrow({ where: { id: actor.id }, include: { roles: { include: { team: true } } } }),
-    prisma.task.count({ where: { assigneeId: actor.id, status: "OPEN" } }),
-    prisma.task.count({ where: { assigneeId: actor.id, status: "OPEN", dueAt: { lte: now() } } }),
-    prisma.candidate.count({ where: { ownerUserId: actor.id } }),
-    prisma.candidate.groupBy({ by: ["stage"], where: { ownerUserId: actor.id }, _count: true }),
-    prisma.contactAttempt.count({ where: { byUserId: actor.id, at: { gte: week.start, lt: week.end } } }),
-    prisma.task.count({ where: { assigneeId: actor.id, status: "DONE", completedAt: { gte: week.start, lt: week.end } } }),
-    prisma.attendance.count({ where: { userId: actor.id, present: true, date: { gte: week.start, lt: week.end } } }),
-    prisma.auditLog.findMany({ where: { actorId: actor.id, action: { not: "VIEW_PII" } }, orderBy: { at: "desc" }, take: 12 }),
-  ]);
+  const { user, openTasks, overdue, owned, byStage, contactsThisWeek, doneThisWeek, attendance, activity } = await api("GET /v1/me/profile");
   const initials = user.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
   return (
@@ -115,9 +101,9 @@ export default async function ProfilePage() {
               <p className="text-sm text-slate-400">You don&apos;t own any leads right now.</p>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {byStage.sort((a, b) => b._count - a._count).map((s) => (
+                {byStage.map((s) => (
                   <Link key={s.stage} href={`/leads?stage=${s.stage}`} className="rounded-lg border border-slate-200 px-3 py-2 hover:border-brand-300 hover:bg-brand-50">
-                    <div className="text-xl font-semibold text-ink tabular-nums">{s._count}</div>
+                    <div className="text-xl font-semibold text-ink tabular-nums">{s.count}</div>
                     <div className="text-xs text-slate-500">{STAGE_LABEL[s.stage]}</div>
                   </Link>
                 ))}

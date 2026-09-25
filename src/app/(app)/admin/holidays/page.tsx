@@ -1,5 +1,4 @@
-import { prisma } from "@/lib/db";
-import { now } from "@/lib/clock";
+import { api } from "@/lib/api/client";
 import { istDateKey } from "@contracts/shared/dates";
 import { PageHeader, Card, Table, Td, Field, Input, Badge } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
@@ -11,8 +10,8 @@ const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const show = (d: Date) => `${String(d.getUTCDate()).padStart(2, "0")}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${d.getUTCFullYear()}`;
 
 export default async function HolidaysPage() {
-  const holidays = await prisma.holiday.findMany({ orderBy: { date: "asc" } });
-  const today = istDateKey(now());
+  const holidays = await api("GET /v1/admin/holidays");
+  const today = istDateKey(new Date());
   return (
     <>
       <PageHeader title="Holidays" subtitle="Holiday calendar used for the red-flag 1-working-day SLA (Sundays are always non-working)." />

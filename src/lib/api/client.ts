@@ -4,18 +4,16 @@ import { redirect } from "next/navigation";
 import type { ApiErrorBody, ApiRoutes } from "@contracts";
 import { SESSION_COOKIE } from "@/lib/session-token";
 import { ApiError } from "./errors";
+import { parseJson } from "./json";
 
 type Key = keyof ApiRoutes & string;
 type Input<K extends Key> = Omit<ApiRoutes[K], "response">;
 /** token: use this bearer instead of the session cookie. auth: false sends no credentials (e.g. login). */
 type CallOpts = { token?: string; auth?: false };
-type Args<K extends Key> = {} extends Input<K> ? [input?: Input<K> & CallOpts] : [input: Input<K> & CallOpts];
+/** The input argument is optional when the endpoint takes no params, query or body. */
+type Args<K extends Key> = Partial<Record<string, never>> extends Input<K> ? [input?: Input<K> & CallOpts] : [input: Input<K> & CallOpts];
 
 const API_URL = (process.env.API_URL ?? "http://localhost:4000").replace(/\/$/, "");
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
-
-/** JSON.parse that turns ISO-8601 UTC timestamps back into Date objects. */
-export const parseJson = (text: string) => JSON.parse(text, (_k, v) => (typeof v === "string" && ISO_DATE.test(v) ? new Date(v) : v));
 
 function buildUrl(path: string, params?: Record<string, string>, query?: Record<string, unknown>) {
   const filled = path.replace(/\{(\w+)\}/g, (_, k: string) => {

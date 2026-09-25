@@ -1,19 +1,15 @@
 import Link from "next/link";
-import type { Prisma, VacancyStatus, TeamCode, MainCategory } from "@contracts";
-import { prisma } from "@/lib/db";
-import { vacancySearchWhere } from "@/server/search/service";
+import type { VacancyStatus, TeamCode } from "@contracts";
+import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
 import { formatDateTime } from "@contracts/shared/dates";
-import { getAllSettings } from "@/lib/settings";
-import { hasRole } from "@/lib/rbac";
+import { hasRole } from "@contracts/shared/rbac";
 import { MAIN_CATEGORIES } from "@contracts/shared/fields";
-import { sourcingStats } from "@/server/vacancies/service";
 import { PageHeader, Card, Table, Td, Badge, Select, Field, Pagination, LinkButton, humanize, btnClass, Input } from "@/components/ui";
 import { fmtMinutes, TEAM_LABEL, ORG_TYPE_LABEL, STATUS_TONE } from "./util";
 
 export const metadata = { title: "Vacancies" };
 
-const PAGE_SIZE = 25;
 const STATUSES: VacancyStatus[] = ["OPEN", "PENDING", "CLOSED"];
 const TEAMS: TeamCode[] = ["T3A", "T3B", "T3C"];
 
@@ -22,28 +18,10 @@ type SP = { q?: string; status?: string; category?: string; team?: string; org?:
 export default async function VacanciesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const actor = await requireActor();
   const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page) || 1);
-  const search = vacancySearchWhere(sp.q);
-  const filters: Prisma.VacancyWhereInput = {
-    ...(STATUSES.includes(sp.status as VacancyStatus) ? { status: sp.status as VacancyStatus } : {}),
-    ...((MAIN_CATEGORIES as readonly string[]).includes(sp.category ?? "") ? { category: sp.category as MainCategory } : {}),
-    ...(TEAMS.includes(sp.team as TeamCode) ? { routedTeam: sp.team as TeamCode } : {}),
-    ...(sp.org ? { clientOrgId: sp.org } : {}),
-    ...(sp.mine === "1" ? { OR: [{ recruiterId: actor.id }, { sourcerId: actor.id }] } : {}),
-  };
-  const where: Prisma.VacancyWhereInput = search ? { AND: [filters, search] } : filters;
-  const [total, vacancies, orgs, settings] = await Promise.all([
-    prisma.vacancy.count({ where }),
-    prisma.vacancy.findMany({
-      where,
-      include: { clientOrg: true, recruiter: { select: { name: true } }, sourcer: { select: { name: true } }, submissions: { select: { isNtSource: true, submittedAt: true } } },
-      orderBy: [{ status: "asc" }, { postedAt: "desc" }],
-      take: PAGE_SIZE,
-      skip: (page - 1) * PAGE_SIZE,
-    }),
-    prisma.clientOrg.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    getAllSettings(),
-  ]);
+  const { total, page, pageSize: PAGE_SIZE, vacancies, orgs, cvTargetPerVacancy, cvMinTeam3bc } = await api("GET /v1/vacancies", {
+    query: { q: sp.q, status: sp.status, category: sp.category, team: sp.team, org: sp.org, mine: sp.mine === "1" ? true : undefined, page: Math.max(1, Math.floor(Number(sp.page)) || 1) },
+  });
+  const settings = { cvTargetPerVacancy, cvMinTeam3bc };
   const canCreate = hasRole(actor, "admin", "sourcer", "team2_leader", "recruiter", "team3_leader");
   const qs = (p: number) => {
     const u = new URLSearchParams();
@@ -76,7 +54,7 @@ export default async function VacanciesPage({ searchParams }: { searchParams: Pr
       <Card pad={false}>
         <Table head={["Vacancy", "Client org", "Location", "Team", "Recruiter / sourcer", "Posted", "CVs", "NT / non-NT", "TAT", "Status"]} empty="No vacancies match these filters.">
           {vacancies.map((v) => {
-            const stats = sourcingStats(v, settings.cvTargetPerVacancy);
+            const stats = v.stats;
             const bc = v.routedTeam === "T3B" || v.routedTeam === "T3C";
             return (
               <tr key={v.id}>

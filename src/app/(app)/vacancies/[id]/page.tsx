@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/db";
+import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { requireActor } from "@/lib/session";
 import { formatDateTime, formatLakhs } from "@contracts/shared/dates";
-import { getAllSettings } from "@/lib/settings";
-import { hasRole } from "@/lib/rbac";
-import { matchesFor, sourcingStats } from "@/server/vacancies/service";
+import { hasRole } from "@contracts/shared/rbac";
 import { PageHeader, Card, Table, Td, Badge, Select, Dl, Progress, Stat, LinkButton, humanize } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { bulkMatchAction, calibrateAction, decideSubmissionAction, setStatusAction } from "../actions";
@@ -16,29 +15,20 @@ export const metadata = { title: "Vacancy" };
 const DECISION_TONE = { PENDING: "slate", SHORTLISTED: "green", REJECTED: "red" } as const;
 const IV_TONE = { SCHEDULED: "blue", ATTENDED: "green", NO_SHOW: "red", CANCELLED: "slate" } as const;
 
+async function load(id: string) {
+  try {
+    return await api("GET /v1/vacancies/{id}", { params: { id } });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
+  }
+}
+
 export default async function VacancyPage({ params }: { params: Promise<{ id: string }> }) {
   const actor = await requireActor();
   const { id } = await params;
-  const v = await prisma.vacancy.findUnique({
-    where: { id },
-    include: {
-      clientOrg: true,
-      recruiter: { select: { name: true } },
-      sourcer: { select: { name: true } },
-      submissions: {
-        include: {
-          candidate: { select: { id: true, name: true, candidateCode: true, stage: true } },
-          submittedBy: { select: { name: true } },
-          interviews: { orderBy: { scheduledAt: "desc" }, take: 1 },
-        },
-        orderBy: { submittedAt: "asc" },
-      },
-    },
-  });
-  if (!v) notFound();
-  const settings = await getAllSettings();
-  const stats = sourcingStats(v, settings.cvTargetPerVacancy);
-  const matches = v.status === "CLOSED" ? [] : await matchesFor(v.id, 50);
+  const { vacancy: v, stats, cvMinTeam3bc, matches } = await load(id);
+  const settings = { cvMinTeam3bc };
   const canSource = hasRole(actor, "admin", "sourcer", "team2_leader");
   // The CV/consent for an Active-but-not-yet-submitted match hasn't reached Team 3 yet,
   // so only Team 2 (and the coordinator/admin, who can see every lead) get a working link to it.

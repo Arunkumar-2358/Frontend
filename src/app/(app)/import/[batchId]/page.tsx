@@ -1,17 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { ImportRowStatus, Prisma } from "@contracts";
-import { prisma } from "@/lib/db";
+import type { ImportRowStatus } from "@contracts";
+import { api } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { requireActor } from "@/lib/session";
-import { hasRole } from "@/lib/rbac";
+import { hasRole } from "@contracts/shared/rbac";
 import { formatDateTime } from "@contracts/shared/dates";
-import { batchGroups } from "@/server/import/pipeline";
 import { PageHeader, Card, Table, Td, Badge, Stat, Empty, Pagination, LinkButton, humanize, btnClass, type Tone } from "@/components/ui";
-import { cellText } from "../upload";
 
 export const metadata = { title: "Import report" };
 
-const PAGE_SIZE = 50;
 const REJECT_STATUSES: ImportRowStatus[] = ["NEEDS_MAPPING", "DUPLICATE_IN_FILE", "DUPLICATE_IN_DB", "INVALID_MOBILE", "ERROR"];
 const STATUS_TONE: Record<ImportRowStatus, Tone> = {
   ACCEPTED: "green",
@@ -22,24 +20,23 @@ const STATUS_TONE: Record<ImportRowStatus, Tone> = {
   ERROR: "red",
 };
 
+async function load(batchId: string, sp: { page?: string; status?: string }) {
+  try {
+    return await api("GET /v1/imports/{batchId}", { params: { batchId }, query: { page: Math.max(1, Number(sp.page) || 1), status: sp.status } });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
+  }
+}
+
 export default async function ImportBatchPage({ params, searchParams }: { params: Promise<{ batchId: string }>; searchParams: Promise<{ page?: string; status?: string }> }) {
   const actor = await requireActor();
   if (!hasRole(actor, "data_analyst", "admin", "team1_leader")) return <Empty title="No access">Import reports are for the data analyst, Team 1 leader and admin.</Empty>;
   const { batchId } = await params;
   const sp = await searchParams;
-  const batch = await prisma.importBatch.findUnique({ where: { id: batchId }, include: { uploadedBy: { select: { name: true } } } });
-  if (!batch) notFound();
-
-  const status = REJECT_STATUSES.includes(sp.status as ImportRowStatus) ? (sp.status as ImportRowStatus) : undefined;
-  const page = Math.max(1, Number(sp.page) || 1);
-  const where: Prisma.ImportRowWhereInput = { batchId, status: status ?? { not: "ACCEPTED" } };
-  const [groups, rejects, rejectTotal, byStatus] = await Promise.all([
-    batchGroups(batchId),
-    prisma.importRow.findMany({ where, orderBy: { rowNumber: "asc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
-    prisma.importRow.count({ where }),
-    prisma.importRow.groupBy({ by: ["status"], where: { batchId }, _count: true }),
-  ]);
-  const statusCount = new Map(byStatus.map((s) => [s.status, s._count]));
+  const { batch, groups, rejects, rejectTotal, statusCount: counts, status: st, page, pageSize: PAGE_SIZE } = await load(batchId, sp);
+  const status = st ?? undefined;
+  const statusCount = new Map(Object.entries(counts) as [ImportRowStatus, number][]);
   const href = (p: { page?: number; status?: string }) => {
     const qs = new URLSearchParams();
     if (p.status) qs.set("status", p.status);
@@ -64,7 +61,7 @@ export default async function ImportBatchPage({ params, searchParams }: { params
           <>
             <LinkButton href="/import">← All imports</LinkButton>
             {totalRejects > 0 && (
-              <a href={`/api/import/rejects/${batchId}`} className={btnClass("secondary")}>Download rejects (.xlsx)</a>
+              <a href={`/api/v1/imports/${batchId}/rejects`} className={btnClass("secondary")}>Download rejects (.xlsx)</a>
             )}
             {batch.needsMappingRows > 0 && <LinkButton href="/leads?stage=MAPPING" variant="primary">Fix “Needs mapping” leads →</LinkButton>}
           </>
@@ -108,7 +105,7 @@ export default async function ImportBatchPage({ params, searchParams }: { params
           </div>
           <Table head={["Row", "Status", "Reason", "Raw values"]} empty="No rejected rows — everything was accepted.">
             {rejects.map((r) => {
-              const raw = Object.entries((r.raw ?? {}) as Record<string, unknown>).filter(([, v]) => cellText(v).trim() !== "");
+              const raw = r.raw;
               return (
                 <tr key={r.id}>
                   <Td className="tabular-nums">{r.rowNumber}</Td>
@@ -124,8 +121,8 @@ export default async function ImportBatchPage({ params, searchParams }: { params
                   <Td className="min-w-64">
                     <div className="space-y-0.5 text-xs">
                       {raw.slice(0, 8).map(([k, v]) => (
-                        <div key={k} className="truncate" title={`${k}: ${cellText(v)}`}>
-                          <span className="text-slate-400">{k}:</span> {cellText(v)}
+                        <div key={k} className="truncate" title={`${k}: ${v}`}>
+                          <span className="text-slate-400">{k}:</span> {v}
                         </div>
                       ))}
                       {raw.length > 8 && <div className="text-slate-400">+{raw.length - 8} more (see download)</div>}

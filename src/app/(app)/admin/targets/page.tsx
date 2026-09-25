@@ -1,9 +1,8 @@
-import { prisma } from "@/lib/db";
-import { KPI_BY_KEY, KPI_DEFINITIONS, SHEETS } from "@/kpi/definitions";
+import { api } from "@/lib/api/client";
+import { SHEETS } from "@contracts/shared/kpi";
 import { PageHeader, Card, Table, Td, Input, Select, Field, Button } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { deleteTargetAction, saveTargetAction } from "./actions";
-import { TARGETABLE_UNITS } from "./units";
 
 export const metadata = { title: "KPI targets" };
 
@@ -11,13 +10,12 @@ const UNIT_SUFFIX: Record<string, string> = { pct: "%", minutes: "min", count: "
 
 export default async function TargetsPage({ searchParams }: { searchParams: Promise<{ sheet?: string }> }) {
   const sp = await searchParams;
-  const targets = await prisma.kpiTarget.findMany({ orderBy: [{ teamCode: "asc" }, { metricKey: "asc" }, { periodType: "asc" }] });
+  const { targets: shown, metrics } = await api("GET /v1/admin/targets", { query: { sheet: sp.sheet } });
   const sheetTitle = Object.fromEntries(SHEETS.map((s) => [s.sheet, s.title]));
-  const metricOpts = KPI_DEFINITIONS.filter((d) => TARGETABLE_UNITS.includes(d.unit) && (!sp.sheet || d.sheet === sp.sheet)).map((d) => ({ value: d.key, label: `${sheetTitle[d.sheet].split(" – ")[0]} · ${d.label}${UNIT_SUFFIX[d.unit] ? ` (${UNIT_SUFFIX[d.unit]})` : ""}` }));
+  const metricOpts = metrics.map((d) => ({ value: d.key, label: `${sheetTitle[d.sheet].split(" – ")[0]} · ${d.label}${UNIT_SUFFIX[d.unit] ? ` (${UNIT_SUFFIX[d.unit]})` : ""}` }));
   const teamOpts = [...new Set(SHEETS.map((s) => s.team))].map((t) => ({ value: t, label: t }));
   const periodOpts = [{ value: "WEEK", label: "Week" }, { value: "MONTH", label: "Month" }];
   const cmpOpts = [{ value: "gte", label: "≥ (at least)" }, { value: "lte", label: "≤ (at most)" }];
-  const shown = targets.filter((t) => !sp.sheet || KPI_BY_KEY[t.metricKey]?.sheet === sp.sheet);
   const cls = "py-1 text-xs";
 
   return (
@@ -44,7 +42,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
       <Card pad={false}>
         <Table head={["Metric", "Target (team · period · comparator · value)", ""]} empty="No targets.">
           {shown.map((t) => {
-            const d = KPI_BY_KEY[t.metricKey];
+            const d = t.metric;
             return (
               <tr key={t.id}>
                 <Td className="min-w-64">

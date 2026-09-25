@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, getAllSettings, type SettingKey } from "@/lib/settings";
+import { api } from "@/lib/api/client";
 import { PageHeader, Card, Field, Input, Checkbox } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { saveSettingsAction } from "./actions";
@@ -7,10 +7,10 @@ import { MANDATORY_CHOICES, OUTCOME_LABEL, SETTING_META } from "./meta";
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const settings = await getAllSettings();
-  const keys = Object.keys(DEFAULT_SETTINGS) as SettingKey[];
+  const { values: settings, defaults: DEFAULT_SETTINGS } = await api("GET /v1/admin/settings");
+  const keys = Object.keys(DEFAULT_SETTINGS);
   const groups = [...new Set(MANDATORY_CHOICES.map((c) => c.group))];
-  const mandatory = new Set(settings.mandatorySopFields);
+  const mandatory = new Set(settings.mandatorySopFields as string[]);
 
   return (
     <>

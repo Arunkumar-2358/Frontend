@@ -24,7 +24,7 @@ function videoDuration(file: File): Promise<number | null> {
   });
 }
 
-/** Upload a resume or intro video to /leads/[id]/files, then refresh the page. */
+/** Upload a resume or intro video to the API (/api/v1/leads/[id]/files), then refresh the page. */
 export function FileUpload({ leadId, kind, accept, maxBytes, label, disabled }: { leadId: string; kind: "resume" | "video"; accept: string; maxBytes: number; label: string; disabled?: boolean }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
@@ -53,9 +53,9 @@ export function FileUpload({ leadId, kind, accept, maxBytes, label, disabled }: 
       const fd = new FormData();
       fd.set("kind", kind);
       fd.set("file", file);
-      const res = await fetch(`/leads/${leadId}/files`, { method: "POST", body: fd });
-      const body = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
-      if (!res.ok) setMsg({ ok: false, text: body.error ?? "Upload failed" });
+      const res = await fetch(`/api/v1/leads/${leadId}/files`, { method: "POST", body: fd });
+      const body = (await res.json().catch(() => ({}))) as { message?: string; error?: { code?: string; message?: string } };
+      if (!res.ok) setMsg({ ok: false, text: body.error?.message ?? "Upload failed" });
       else {
         setMsg({ ok: true, text: body.message ?? "Uploaded" });
         router.refresh();
