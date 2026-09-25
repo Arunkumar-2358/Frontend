@@ -1,11 +1,11 @@
 # Recruit CRM — Web
 
-The Next.js front end for **Nextenti Recruit CRM**. It renders the role-aware UI and talks to [`recruit-crm-api`](../recruit-crm-api) for every read and write — this app has no database access (ESLint enforces it). Architecture decision: `recruit-crm-api/docs/adr/0001-split-web-and-api.md`.
+The Next.js front end for **Nextenti Recruit CRM**. It renders the role-aware UI and talks to [`Backend`](../Backend) for every read and write — this app has no database access (ESLint enforces it). Architecture decision: `Backend/docs/adr/0001-split-web-and-api.md`.
 
 ```
 Browser ──► Next.js (this repo)
               ├─ server components ──► api("GET /v1/…")  ─┐
-              ├─ server actions    ──► api("POST /v1/…") ─┼─ Bearer JWT from the httpOnly nt_session cookie ─► recruit-crm-api
+              ├─ server actions    ──► api("POST /v1/…") ─┼─ Bearer JWT from the httpOnly nt_session cookie ─► Backend (API)
               └─ /api/v1/* rewrite (downloads, uploads, push) ─┘
 ```
 
@@ -29,7 +29,7 @@ npm run dev                    # http://localhost:3000
 |---|---|
 | `npm run dev` · `build` · `start` | Next.js dev server · production build · production server |
 | `npm run lint` · `typecheck` · `test` | ESLint (incl. the no-DB boundary rule) · `tsc` · Vitest unit tests |
-| `npm run contracts:sync` | Copy the API's `contracts/` into `src/contracts/` (from `../recruit-crm-api` or `$API_CONTRACTS_DIR`) |
+| `npm run contracts:sync` | Copy the API's `contracts/` into `src/contracts/` (from `../Backend` or `$API_CONTRACTS_DIR`) |
 | `npm run contracts:check` | Fail if `src/contracts/` is stale |
 
 ## How data flows

@@ -1,14 +1,14 @@
 // Copy the API's contracts/ into src/contracts. `--check` fails if the copy is stale.
-// Source: $API_CONTRACTS_DIR, or ../recruit-crm-api/contracts (sibling checkout).
+// Source: $API_CONTRACTS_DIR, or ../Backend/contracts (sibling checkout).
 import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
-const src = resolve(process.env.API_CONTRACTS_DIR ?? "../recruit-crm-api/contracts");
+const src = resolve(process.env.API_CONTRACTS_DIR ?? "../Backend/contracts");
 const dest = resolve("src/contracts");
 const check = process.argv.includes("--check");
 
 if (!existsSync(src)) {
-  console.error(`Contracts source not found at ${src}. Clone recruit-crm-api next to this repo or set API_CONTRACTS_DIR.`);
+  console.error(`Contracts source not found at ${src}. Clone the Backend repo next to this repo or set API_CONTRACTS_DIR.`);
   process.exit(1);
 }
 

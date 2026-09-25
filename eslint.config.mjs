@@ -18,8 +18,8 @@ export default [
         {
           patterns: [
             { group: ["@prisma/*", ".prisma/*"], message: "The web app has no database access. Use types from @contracts and data from @/lib/api/client." },
-            { group: ["@/server/*", "@/kpi/*", "@/lib/db", "@/lib/rbac", "@/lib/clock", "@/lib/dates", "@/lib/phone", "@/lib/ago"], message: "Server code lives in recruit-crm-api. Shared helpers are in @contracts/shared/*." },
-            { group: ["bcryptjs", "exceljs", "web-push"], message: "Server-only dependency; this belongs in recruit-crm-api." },
+            { group: ["@/server/*", "@/kpi/*", "@/lib/db", "@/lib/rbac", "@/lib/clock", "@/lib/dates", "@/lib/phone", "@/lib/ago"], message: "Server code lives in the Backend repo. Shared helpers are in @contracts/shared/*." },
+            { group: ["bcryptjs", "exceljs", "web-push"], message: "Server-only dependency; this belongs in the Backend repo." },
           ],
         },
       ],
