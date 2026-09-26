@@ -1,14 +1,14 @@
 import type { JobStatus } from "@contracts";
 import { api } from "@/lib/api/client";
 import { formatDateTime } from "@contracts/shared/dates";
-import { PageHeader, Card, Table, Td, Badge, Stat, Select, Button, Pagination } from "@/components/ui";
+import { PageHeader, Card, Table, Td, Badge, Stat, Select, Button, Pagination, type Tone } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { freezeKpisAction, runDueJobsAction } from "./actions";
 
 export const metadata = { title: "Scheduled jobs" };
 
 const STATUSES: JobStatus[] = ["PENDING", "FAILED", "DONE", "CANCELLED"];
-const TONE = { PENDING: "blue", FAILED: "red", DONE: "green", CANCELLED: "slate" } as const;
+const TONE: Record<JobStatus, Tone> = { PENDING: "blue", QUEUED: "blue", RUNNING: "amber", FAILED: "red", DONE: "green", CANCELLED: "slate" };
 
 export default async function JobsPage({ searchParams }: { searchParams: Promise<{ status?: string; type?: string; page?: string }> }) {
   const sp = await searchParams;

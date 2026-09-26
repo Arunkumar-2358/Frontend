@@ -5,7 +5,7 @@ import { formatMobile } from "@contracts/shared/phone";
 import { STAGE_LABEL } from "@contracts/shared/lifecycle";
 import { PageHeader, Card, Field, Input, Badge, Stat, Dl, humanize, Table, Td } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
-import { changePasswordAction, updateProfileAction } from "./actions";
+import { changePasswordAction, signOutOtherDevicesAction, updateProfileAction } from "./actions";
 import { AppearancePicker } from "./appearance";
 import { PushToggle } from "./push";
 import { parseThemePref } from "@/lib/theme";
@@ -76,6 +76,13 @@ export default async function ProfilePage() {
                 <Input name="confirm" type="password" autoComplete="new-password" required />
               </Field>
               <Submit>Update password</Submit>
+            </ActionForm>
+          </Card>
+
+          <Card title="Signed-in devices">
+            <p className="text-sm text-slate-600">Lost a phone or used a shared computer? Sign out everywhere except this device.</p>
+            <ActionForm action={signOutOtherDevicesAction} className="mt-3" confirm="Sign out of all other devices? Anyone signed in elsewhere will need to sign in again.">
+              <Submit variant="secondary">Sign out of all other devices</Submit>
             </ActionForm>
           </Card>
         </div>

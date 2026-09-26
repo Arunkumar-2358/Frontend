@@ -34,3 +34,11 @@ export async function setThemeAction(pref: string): Promise<{ ok: boolean; error
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+/** Revoke every other session of this user (other browsers, phones); this device stays signed in. */
+export async function signOutOtherDevicesAction(): Promise<ActionState> {
+  return run(async () => {
+    await api("POST /v1/auth/logout-all", { body: { keepCurrent: true } });
+    return "Signed out of all other devices. They will need to sign in again.";
+  });
+}
