@@ -26,6 +26,59 @@
 html, body { background: var(--color-surface); color: var(--color-ink); }
 
 /*
+ * shadcn/ui semantic tokens, mapped onto the brand palette above. They reference the
+ * palette variables, so the .dark palette below restyles them automatically (the .dark
+ * class sits on <html>, the same element as :root). Declared on .dark too so a .dark
+ * subtree resolves against its own palette.
+ *
+ * NOTE: `accent` is NOT shadcn's hover surface here — `--color-accent` is the brand red
+ * used across the app (text-accent, bg-accent). shadcn components that use bg-accent /
+ * focus:bg-accent for highlights must use bg-muted instead (see docs/UI_CONVENTIONS.md).
+ */
+:root,
+.dark {
+  --background: var(--color-surface);
+  --foreground: var(--color-ink);
+  --card: var(--color-white);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-white);
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-brand-600); /* #01637E */
+  --primary-foreground: #ffffff;
+  --secondary: var(--color-slate-100);
+  --secondary-foreground: var(--color-ink);
+  --muted: var(--color-slate-100);
+  --muted-foreground: var(--color-slate-500);
+  --destructive: var(--color-red-600);
+  --destructive-foreground: #ffffff;
+  --border: var(--color-slate-200);
+  --input: var(--color-slate-300);
+  --ring: var(--color-brand-600);
+  --radius: 0.5rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  /* Radius: Tailwind's default scale (rounded-lg = 0.5rem = --radius) is kept as-is. */
+}
+
+/*
  * Dark mode — the same teal brand on a charcoal base (the NT mark's colour family).
  * Every page is built from these palette variables, so redefining them restyles
  * all modules for every role at once. "white" becomes the card surface; text that

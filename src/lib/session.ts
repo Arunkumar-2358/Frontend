@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import type { Actor } from "@contracts";
 import { api } from "./api/client";
 import { ApiError } from "./api/errors";
-import { SESSION_COOKIE, verifySession } from "./session-token";
+import { verifySession } from "./session-token";
+import { REFRESH_COOKIE, SESSION_COOKIE, clearSessionCookies, setSessionCookies } from "./auth-cookies";
 import { THEME_COOKIE } from "./theme";
 
 export type UserActor = Extract<Actor, { kind: "user" }>;
@@ -13,13 +14,13 @@ export type UserActor = Extract<Actor, { kind: "user" }>;
 /** The app-shell payload for this request (deduplicated across layout + page). */
 export const getShell = cache(() => api("GET /v1/me/shell"));
 
-/** Sign in through the API and store the session token; returns an error code or null. */
+/** Sign in through the API and store the access + refresh cookies; returns an error code or null. */
 export async function login(email: string, password: string): Promise<"invalid" | "rate" | null> {
   try {
-    const { token, expiresIn, user } = await api("POST /v1/auth/login", { body: { email, password }, auth: false });
+    const result = await api("POST /v1/auth/login", { body: { email, password }, auth: false });
     const jar = await cookies();
-    jar.set(SESSION_COOKIE, token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: expiresIn });
-    jar.set(THEME_COOKIE, user.theme, { sameSite: "lax", path: "/", maxAge: 365 * 86400 });
+    setSessionCookies(jar, result);
+    jar.set(THEME_COOKIE, result.user.theme, { sameSite: "lax", path: "/", maxAge: 365 * 86400 });
     return null;
   } catch (e) {
     if (e instanceof ApiError && (e.status === 401 || e.status === 422)) return "invalid";
@@ -28,8 +29,22 @@ export async function login(email: string, password: string): Promise<"invalid" 
   }
 }
 
+/**
+ * Sign this device out: revoke the session at the API (best effort — a down API
+ * must not keep anyone signed in locally), then always clear both cookies.
+ * Server actions / route handlers only (cookies are read-only while rendering).
+ */
 export async function logout() {
-  (await cookies()).delete(SESSION_COOKIE);
+  const jar = await cookies();
+  const refreshToken = jar.get(REFRESH_COOKIE)?.value;
+  const access = jar.get(SESSION_COOKIE)?.value;
+  try {
+    // `token` (not the cookie default) so a 401 here never redirects mid-logout.
+    await api("POST /v1/auth/logout", { body: refreshToken ? { refreshToken } : {}, ...(access ? { token: access } : { auth: false }), timeoutMs: 4_000 });
+  } catch (e) {
+    console.warn("[auth] API logout failed; clearing cookies anyway", e instanceof Error ? e.message : e);
+  }
+  clearSessionCookies(jar);
 }
 
 /** The signed-in user (roles loaded fresh from the API), or null. */

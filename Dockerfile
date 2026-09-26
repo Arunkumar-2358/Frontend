@@ -11,7 +11,9 @@ COPY . .
 # Build-time values: API_URL is baked into the /api/v1 proxy rewrites; the VAPID key is inlined into the browser bundle.
 ARG API_URL=http://api:4000
 ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY=""
-ENV API_URL=$API_URL NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY NEXT_TELEMETRY_DISABLED=1
+# Optional browser error reporting; empty = Sentry is not loaded at all.
+ARG NEXT_PUBLIC_SENTRY_DSN=""
+ENV API_URL=$API_URL NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 FROM base AS runtime

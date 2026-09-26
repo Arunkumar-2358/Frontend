@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit review configuration — Nextenti Recruit CRM web app (Next.js App Router).
+# The API is the security boundary; this app must never leak tokens or candidate PII to the browser.
+language: en-US
+tone_instructions: "Be direct and specific. Lead with bugs, security and accessibility issues; skip style nits the linters already catch."
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: true
+  poem: false
+  changed_files_summary: true
+  suggested_labels: true
+  suggested_reviewers: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: ["main", "release/.*"]
+    ignore_title_keywords: ["WIP", "DO NOT REVIEW"]
+  path_filters:
+    - "!**/node_modules/**"
+    - "!.next/**"
+    - "!package-lock.json"
+    - "!src/contracts/**"
+  path_instructions:
+    - path: "src/**/*.{ts,tsx}"
+      instructions: |
+        Flag as critical:
+        - Access or refresh tokens reachable from client code: session cookies must stay httpOnly and only be read
+          in server components, server actions, route handlers or middleware.
+        - "use client" files importing server-only modules (src/lib/session.ts, src/lib/api/client.ts) or secrets
+          (anything not prefixed NEXT_PUBLIC_).
+        - Candidate PII (mobile, email, CV links) in URLs, query strings, logs, analytics or Sentry events.
+          Lists should show masked mobiles as returned by the API.
+        - Server actions that trust client-provided ids/roles instead of letting the API authorise.
+        - dangerouslySetInnerHTML or unsanitised HTML.
+        Also check: accessible labels on inputs, keyboard support for menus/dialogs, loading and error states for
+        every form (ActionForm), and dark-mode tokens instead of hard-coded colours.
+    - path: "src/middleware.ts"
+      instructions: |
+        Runs on every request. Refresh tokens are single use: a refresh must happen at most once per request and
+        the new access token must be forwarded to the downstream request. Middleware must never throw (network
+        errors → treat as signed out, not 500). Public paths must stay limited to login, webhooks and static assets.
+    - path: "src/components/ui/**"
+      instructions: "shadcn/ui primitives: keep Radix accessibility behaviour intact, use cn() and theme CSS variables, no page-specific logic."
+    - path: "tests/**"
+      instructions: "Check tests assert user-visible behaviour and security properties (redirects, cookie flags), not implementation details."
+  tools:
+    eslint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+    hadolint:
+      enabled: true
+    yamllint:
+      enabled: true
+    actionlint:
+      enabled: true
+    markdownlint:
+      enabled: false
+    languagetool:
+      enabled: false
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  opt_out: false
+  learnings:
+    scope: local
+  pull_requests:
+    scope: local

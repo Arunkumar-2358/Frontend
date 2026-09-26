@@ -1,8 +1,23 @@
+/**
+ * The app's component API (`@/components/ui`) — unchanged for every page.
+ *
+ * Styles come from the shadcn-style primitives in this folder (button.tsx, input.tsx,
+ * badge.tsx, card.tsx, table.tsx …), so there is one definition of each look. These
+ * wrappers deliberately join a caller's `className` with clsx (plain concatenation),
+ * NOT cn()/tailwind-merge: that keeps today's rendering byte-for-byte, including the
+ * places where a page's override class currently loses to the base class in CSS order.
+ * New code can import the primitives directly (`@/components/ui/button`) and gets cn().
+ */
 import Link from "next/link";
 import clsx from "clsx";
 import type { ReactNode, ComponentProps } from "react";
 import type { Stage } from "@contracts";
 import { STAGE_LABEL } from "@contracts/shared/lifecycle";
+import { buttonVariants } from "./button";
+import { fieldClass } from "./input";
+import { badgeVariants, type BadgeTone } from "./badge";
+import { cardClass, CardHeader, CardTitle } from "./card";
+import { TableBody, TableHead, TableHeader, TableRow, tableCellClass } from "./table";
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
@@ -18,32 +33,20 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 
 export function Card({ title, actions, children, className, pad = true }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; pad?: boolean }) {
   return (
-    <section className={clsx("overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]", className)}>
+    <section className={clsx(cardClass, className)}>
       {(title || actions) && (
-        <header className="flex items-center justify-between gap-2 px-5 py-4">
-          <h2 className="text-[13px] font-medium tracking-[0.06em] text-ink uppercase">{title}</h2>
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
           {actions}
-        </header>
+        </CardHeader>
       )}
       <div className={clsx(pad && "px-5 pb-5", pad && !(title || actions) && "pt-5")}>{children}</div>
     </section>
   );
 }
 
-const BTN = {
-  primary: "bg-brand-600 text-white hover:bg-brand-700 border-transparent",
-  secondary: "bg-white text-ink hover:bg-slate-50 hover:border-brand-300 border-slate-300",
-  danger: "bg-red-600 text-white hover:bg-red-700 border-transparent",
-  ghost: "bg-transparent text-slate-600 hover:bg-slate-100 border-transparent",
-  success: "bg-emerald-600 text-white hover:bg-emerald-700 border-transparent",
-};
-export type BtnVariant = keyof typeof BTN;
-export const btnClass = (variant: BtnVariant = "primary", size: "sm" | "md" = "md") =>
-  clsx(
-    "inline-flex items-center justify-center gap-1.5 rounded-lg border font-medium shadow-xs transition disabled:cursor-not-allowed disabled:opacity-50",
-    size === "sm" ? "px-2.5 py-1 text-xs" : "px-4 py-2.5 text-sm",
-    BTN[variant],
-  );
+export type BtnVariant = "primary" | "secondary" | "danger" | "ghost" | "success";
+export const btnClass = (variant: BtnVariant = "primary", size: "sm" | "md" = "md") => buttonVariants({ variant, size });
 
 export function Button({ variant = "primary", size = "md", className, ...p }: ComponentProps<"button"> & { variant?: BtnVariant; size?: "sm" | "md" }) {
   return <button {...p} className={clsx(btnClass(variant, size), className)} />;
@@ -57,7 +60,7 @@ export function LinkButton({ href, variant = "secondary", size = "md", children,
   );
 }
 
-const inputCls = "block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-ink shadow-xs placeholder:text-slate-400 focus:border-brand-600 focus:ring-2 focus:ring-brand-100 focus:outline-none disabled:bg-slate-50 disabled:text-slate-500";
+const inputCls = fieldClass;
 
 export function Input(p: ComponentProps<"input">) {
   return <input {...p} className={clsx(inputCls, p.className)} />;
@@ -96,21 +99,10 @@ export function Checkbox({ label, ...p }: ComponentProps<"input"> & { label: Rea
   );
 }
 
-const TONES = {
-  slate: "bg-slate-100 text-slate-700 ring-slate-200",
-  blue: "bg-brand-50 text-brand-700 ring-brand-200",
-  green: "bg-emerald-600 text-white ring-emerald-600",
-  amber: "bg-amber-50 text-amber-800 ring-amber-200",
-  red: "bg-red-50 text-red-700 ring-red-200",
-  violet: "bg-violet-50 text-violet-700 ring-violet-200",
-  cyan: "bg-brand-100 text-brand-800 ring-brand-200",
-  brand: "bg-brand-600 text-white ring-brand-600",
-  outline: "bg-white text-ink ring-slate-300",
-};
-export type Tone = keyof typeof TONES;
+export type Tone = BadgeTone;
 
 export function Badge({ children, tone = "slate", className }: { children: ReactNode; tone?: Tone; className?: string }) {
-  return <span className={clsx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset whitespace-nowrap", TONES[tone], className)}>{children}</span>;
+  return <span className={clsx(badgeVariants({ tone }), className)}>{children}</span>;
 }
 
 export const STAGE_TONE: Record<Stage, Tone> = {
@@ -154,26 +146,26 @@ export function Table({ head, children, empty, className }: { head: ReactNode[];
   return (
     <div className={clsx("overflow-x-auto", className)}>
       <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-head">
-          <tr>
+        <TableHeader>
+          <TableRow>
             {head.map((h, i) => (
-              <th key={i} className="px-4 py-3 text-left text-[13.5px] font-semibold whitespace-nowrap text-ink">{h}</th>
+              <TableHead key={i}>{h}</TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100 bg-white">
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {hasRows ? children : (
             <tr>
               <td colSpan={head.length} className="px-3 py-10 text-center text-sm text-slate-400">{empty ?? "Nothing here yet."}</td>
             </tr>
           )}
-        </tbody>
+        </TableBody>
       </table>
     </div>
   );
 }
 export function Td({ children, className, ...p }: ComponentProps<"td">) {
-  return <td {...p} className={clsx("px-4 py-3 align-top text-ink", className)}>{children}</td>;
+  return <td {...p} className={clsx(tableCellClass, className)}>{children}</td>;
 }
 
 export function Progress({ value }: { value: number }) {
