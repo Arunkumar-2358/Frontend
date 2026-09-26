@@ -28,11 +28,11 @@ export function scrubEvent<T extends Event>(event: T): T {
     delete r.headers;
     delete r.query_string;
     delete r.env;
-    r.url = stripQuery(r.url) as string | undefined;
+    r.url = maskPiiDeep(stripQuery(r.url)) as string | undefined;
   }
   if (event.user) event.user = event.user.id ? { id: event.user.id } : {};
   if (event.breadcrumbs) event.breadcrumbs = event.breadcrumbs.map(scrubBreadcrumb).filter((b): b is Breadcrumb => b !== null);
-  if (typeof event.transaction === "string") event.transaction = stripQuery(event.transaction) as string;
+  if (typeof event.transaction === "string") event.transaction = maskPii(stripQuery(event.transaction) as string);
   // Error text can quote input ("Invalid mobile 98…", an API message with an email): mask it everywhere.
   if (event.message) event.message = maskPii(event.message);
   for (const ex of event.exception?.values ?? []) if (ex.value) ex.value = maskPii(ex.value);
@@ -49,7 +49,8 @@ export function scrubBreadcrumb(b: Breadcrumb): Breadcrumb | null {
     const data: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(b.data)) {
       if (/body|header|cookie|authorization|password|token/i.test(k)) continue;
-      data[k] = (URL_KEYS as readonly string[]).includes(k) ? stripQuery(v) : maskPiiDeep(v);
+      // URL paths can embed contact details too (/search/priya@…): strip the query, then mask.
+      data[k] = maskPiiDeep((URL_KEYS as readonly string[]).includes(k) ? stripQuery(v) : v);
     }
     b.data = data;
   }

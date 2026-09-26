@@ -31,6 +31,10 @@ describe("Sentry scrubbing", () => {
     expect(e.extra).toEqual({ input: { mobile: "[mobile]" } });
     expect(Object.keys(e.contexts)).toEqual(["runtime"]);
     expect(scrubBreadcrumb({ category: "navigation", message: "opened lead x@y.io" })?.message).toBe("opened lead [email]");
+    expect(scrubBreadcrumb({ category: "navigation", data: { to: "/search/x@y.io?q=9876543210" } })?.data).toEqual({ to: "/search/[email]" });
+    let deep: unknown = { m: "9876543210" };
+    for (let i = 0; i < 8; i++) deep = { n: deep };
+    expect(JSON.stringify(scrubEvent({ extra: { deep } } as never))).not.toContain("9876543210");
   });
 
   it("removes cookies, headers, bodies, query strings and user PII", () => {
