@@ -32,6 +32,9 @@ describe("Sentry scrubbing", () => {
     expect(Object.keys(e.contexts)).toEqual(["runtime"]);
     expect(scrubBreadcrumb({ category: "navigation", message: "opened lead x@y.io" })?.message).toBe("opened lead [email]");
     expect(scrubBreadcrumb({ category: "navigation", data: { to: "/search/x@y.io?q=9876543210" } })?.data).toEqual({ to: "/search/[email]" });
+    expect(scrubBreadcrumb({ category: "fetch", data: { url: "/api/v1/files/resumes/4f1c-Priya_Sharma_CV.pdf" } })?.data).toEqual({ url: "/api/v1/files/[file]" });
+    expect((scrubEvent({ request: { url: "https://crm.example/api/v1/files/videos/ab-Priya.mp4?x=1" } } as never) as { request: { url: string } }).request.url).toBe("https://crm.example/api/v1/files/[file]");
+    expect((scrubEvent({ transaction: "/api/v1/files/resumes/x-Priya.pdf" } as never) as { transaction: string }).transaction).toBe("/api/v1/files/[file]");
     let deep: unknown = { m: "9876543210" };
     for (let i = 0; i < 8; i++) deep = { n: deep };
     expect(JSON.stringify(scrubEvent({ extra: { deep } } as never))).not.toContain("9876543210");

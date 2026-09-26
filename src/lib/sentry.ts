@@ -28,6 +28,7 @@ export function scrubEvent<T extends Event>(event: T): T {
     delete r.headers;
     delete r.query_string;
     delete r.env;
+    // maskPii also redacts /files/<key> paths: storage keys embed CV filenames (often the candidate name).
     r.url = maskPiiDeep(stripQuery(r.url)) as string | undefined;
   }
   if (event.user) event.user = event.user.id ? { id: event.user.id } : {};
