@@ -22,7 +22,7 @@ export function NotificationBell({ unread, items }: { unread: number; items: Bel
     <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
       <DropdownMenuTrigger asChild>
         <button className="relative rounded-full p-2 text-ink hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-brand-200 focus-visible:outline-none" aria-label={`Notifications (${unread} unread)`}>
-          <Bell size={22} strokeWidth={1.8} />
+          <Bell size={22} strokeWidth={1.8} aria-hidden="true" />
           {unread > 0 && (
             <span className="absolute -top-0.5 -right-0.5 min-w-[18px] rounded-full bg-accent px-1 text-center text-[10px] leading-[18px] font-bold text-white">{unread > 99 ? "99+" : unread}</span>
           )}
@@ -39,7 +39,7 @@ export function NotificationBell({ unread, items }: { unread: number; items: Bel
               }}
               className="gap-1 px-1 py-0.5 text-xs font-medium text-brand-600 hover:underline data-[highlighted]:bg-transparent data-[highlighted]:underline"
             >
-              <CheckCheck size={14} /> Mark all read
+              <CheckCheck size={14} aria-hidden="true" /> Mark all read
             </DropdownMenuItem>
           )}
         </div>
@@ -59,7 +59,7 @@ export function NotificationBell({ unread, items }: { unread: number; items: Bel
                 className={clsx("cursor-pointer items-stretch gap-3 rounded-none px-4 py-3 text-left data-[highlighted]:bg-slate-50", !n.read && "bg-brand-50/60")}
               >
                 <span className={clsx("mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full", n.kind === "RED_FLAG" || n.kind === "CAPA" ? "bg-red-50 text-accent" : "bg-brand-100 text-brand-700")}>
-                  <Icon size={16} />
+                  <Icon size={16} aria-hidden="true" />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className={clsx("block text-sm", n.read ? "text-slate-700" : "font-semibold text-ink")}>{n.title}</span>

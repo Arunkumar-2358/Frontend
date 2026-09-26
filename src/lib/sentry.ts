@@ -9,6 +9,7 @@
  * breadcrumb URLs lose their query too.
  */
 import type { Breadcrumb, ErrorEvent, Event } from "@sentry/nextjs";
+import { maskPii, maskPiiDeep } from "./pii-scrub";
 
 /** Drop the query string and fragment from a URL or path (keeps it relative if it was). */
 export function stripQuery(url: unknown): unknown {
@@ -32,15 +33,23 @@ export function scrubEvent<T extends Event>(event: T): T {
   if (event.user) event.user = event.user.id ? { id: event.user.id } : {};
   if (event.breadcrumbs) event.breadcrumbs = event.breadcrumbs.map(scrubBreadcrumb).filter((b): b is Breadcrumb => b !== null);
   if (typeof event.transaction === "string") event.transaction = stripQuery(event.transaction) as string;
+  // Error text can quote input ("Invalid mobile 98…", an API message with an email): mask it everywhere.
+  if (event.message) event.message = maskPii(event.message);
+  for (const ex of event.exception?.values ?? []) if (ex.value) ex.value = maskPii(ex.value);
+  if (event.extra) event.extra = maskPiiDeep(event.extra);
+  if (event.tags) event.tags = maskPiiDeep(event.tags);
+  // Keep only runtime/browser/os contexts; anything app-supplied could carry records.
+  if (event.contexts) event.contexts = Object.fromEntries(Object.entries(event.contexts).filter(([k]) => ["runtime", "browser", "os", "device", "trace"].includes(k)));
   return event;
 }
 
 export function scrubBreadcrumb(b: Breadcrumb): Breadcrumb | null {
+  if (b.message) b.message = maskPii(b.message);
   if (b.data) {
     const data: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(b.data)) {
       if (/body|header|cookie|authorization|password|token/i.test(k)) continue;
-      data[k] = (URL_KEYS as readonly string[]).includes(k) ? stripQuery(v) : v;
+      data[k] = (URL_KEYS as readonly string[]).includes(k) ? stripQuery(v) : maskPiiDeep(v);
     }
     b.data = data;
   }

@@ -19,6 +19,20 @@ describe("cn()", () => {
 });
 
 describe("Sentry scrubbing", () => {
+  it("masks candidate contact details in error text, extras and breadcrumbs", () => {
+    const e = scrubEvent({
+      message: "Lead 9876543210 failed",
+      exception: { values: [{ type: "ApiError", value: "Duplicate of priya@example.com" }] },
+      extra: { input: { mobile: "+91 98765 43210" } },
+      contexts: { runtime: { name: "node" }, lead: { email: "a@b.co" } },
+    } as never) as { message: string; exception: { values: { value: string }[] }; extra: unknown; contexts: Record<string, unknown> };
+    expect(e.message).toBe("Lead [mobile] failed");
+    expect(e.exception.values[0].value).toBe("Duplicate of [email]");
+    expect(e.extra).toEqual({ input: { mobile: "[mobile]" } });
+    expect(Object.keys(e.contexts)).toEqual(["runtime"]);
+    expect(scrubBreadcrumb({ category: "navigation", message: "opened lead x@y.io" })?.message).toBe("opened lead [email]");
+  });
+
   it("removes cookies, headers, bodies, query strings and user PII", () => {
     const e = scrubEvent({
       type: undefined,

@@ -39,7 +39,8 @@ export const buttonVariants = cva(
 
 export type ButtonProps = React.ComponentProps<"button"> & VariantProps<typeof buttonVariants> & { asChild?: boolean };
 
-export function Button({ className, variant, size, asChild = false, ...props }: ButtonProps) {
+export function Button({ className, variant, size, asChild = false, type, ...props }: ButtonProps) {
   const Comp = asChild ? Slot : "button";
-  return <Comp data-slot="button" className={cn(buttonVariants({ variant, size }), className)} {...props} />;
+  // A native button inside a form submits by default; make submitting explicit (type="submit").
+  return <Comp data-slot="button" className={cn(buttonVariants({ variant, size }), className)} type={asChild ? type : (type ?? "button")} {...props} />;
 }
