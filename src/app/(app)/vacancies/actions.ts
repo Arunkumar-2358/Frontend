@@ -32,6 +32,8 @@ export async function createVacancyAction(_: ActionState, fd: FormData): Promise
         maxNoticeDays: num(fd, "maxNoticeDays"),
         openings: num(fd, "openings"),
         postedAt: postedAt ?? undefined,
+        description: str(fd, "description"),
+        mandatoryAttributes: str(fd, "mandatoryAttributes"),
       },
     });
     revalidatePath("/vacancies");

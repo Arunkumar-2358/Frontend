@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, ListChecks, Users, Upload, PhoneOutgoing, PhoneMissed, ClipboardCheck, CalendarClock, Briefcase,
-  CalendarCheck, Scale, Flag, BarChart3, Settings, Bell, UserRound, type LucideIcon,
+  CalendarCheck, Scale, Flag, BarChart3, Settings, Bell, UserRound, Activity, Shuffle, PhoneCall, type LucideIcon,
 } from "lucide-react";
 
 export const NAV_ICONS: Record<string, LucideIcon> = {
@@ -13,6 +13,9 @@ export const NAV_ICONS: Record<string, LucideIcon> = {
   "/missed-calls": PhoneMissed,
   "/scrutiny": ClipboardCheck,
   "/availability": CalendarClock,
+  "/engagement": Activity,
+  "/cold-calls": PhoneCall,
+  "/allocation": Shuffle,
   "/vacancies": Briefcase,
   "/recruitment": CalendarCheck,
   "/evaluations": Scale,
