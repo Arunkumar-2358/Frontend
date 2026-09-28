@@ -40,7 +40,7 @@ function LeadCell({ c }: { c: { id: string; name: string; candidateCode: string;
 
 export default async function AvailabilityPage({ searchParams }: { searchParams: Promise<{ page?: string; cold?: string }> }) {
   const sp = await searchParams;
-  const { isLeader, coldOnly, page, pageSize, interval, weekStart, monthStart, dueTasks, qualified, qualifiedTotal, coldCount, convWeek, convMonth, recent } = await api("GET /v1/availability", {
+  const { isLeader, coldOnly, page, pageSize, interval, awaitingAllocation, weekStart, monthStart, dueTasks, qualified, qualifiedTotal, coldCount, convWeek, convMonth, recent } = await api("GET /v1/availability", {
     query: { page: Math.max(1, Number(sp.page) || 1), cold: sp.cold === "1" || undefined },
   });
   const t = new Date();
@@ -49,8 +49,14 @@ export default async function AvailabilityPage({ searchParams }: { searchParams:
     <>
       <PageHeader
         title="Availability check-ins"
-        subtitle={`${isLeader ? "All qualified leads" : "Qualified leads you own"} · the system schedules a check-in every ${interval} days while a lead is Qualified`}
+        subtitle={`${isLeader ? "All qualified leads" : "Qualified leads allocated to you"} · the system schedules a check-in every ${interval} days while a lead is Qualified`}
       />
+      {awaitingAllocation > 0 && (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          {awaitingAllocation} qualified lead{awaitingAllocation === 1 ? " is" : "s are"} waiting for the Team 3 leader to allocate {awaitingAllocation === 1 ? "it" : "them"} to Team 2 — check-ins start once allocated.
+          {isLeader && <> <Link className="font-medium underline" href="/allocation">See the pool</Link></>}
+        </p>
+      )}
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat label="Due check-ins" value={dueTasks.length} tone={dueTasks.length ? "amber" : undefined} />

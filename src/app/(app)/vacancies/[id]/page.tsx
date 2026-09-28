@@ -71,12 +71,29 @@ export default async function VacancyPage({ params }: { params: Promise<{ id: st
               ["Openings", `${v.openingsFilled} filled of ${v.openings}`],
               ["Recruiter", v.recruiter?.name],
               ["Sourcer", v.sourcer?.name],
+              ["TA lead (portal sourcing)", v.taLead?.name],
               ["Posted", formatDateTime(v.postedAt)],
               ["Calibrated", formatDateTime(v.calibratedAt)],
               ["Sourcing completed", formatDateTime(v.sourcingCompletedAt)],
               ["Closed", formatDateTime(v.closedAt)],
             ]}
           />
+          {(v.description || v.mandatoryAttributes) && (
+            <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
+              {v.description && (
+                <div>
+                  <div className="text-xs font-medium text-slate-500">Description of the job post</div>
+                  <p className="mt-1 text-sm whitespace-pre-line text-slate-800">{v.description}</p>
+                </div>
+              )}
+              {v.mandatoryAttributes && (
+                <div>
+                  <div className="text-xs font-medium text-slate-500">Mandatory attributes</div>
+                  <p className="mt-1 text-sm whitespace-pre-line text-slate-800">{v.mandatoryAttributes}</p>
+                </div>
+              )}
+            </div>
+          )}
           {canManage && (
             <div className="mt-4 flex flex-wrap items-start gap-3 border-t border-slate-100 pt-4">
               {!v.calibratedAt && (

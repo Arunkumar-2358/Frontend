@@ -48,7 +48,12 @@ export default async function KpiPage({ searchParams }: { searchParams: Promise<
       <PageHeader
         title="KPI analysis"
         subtitle={`${p.periodType === "WEEK" ? "Week (Mon–Sun)" : "Month"} · ${formatDate(p.start)} to ${formatDate(p.lastDay)} · computed live from events`}
-        actions={canExport ? <LinkButton variant="primary" href={`/api/v1/kpi/export?period=${p.periodType}&date=${p.dateKey}`}>Export to Excel</LinkButton> : undefined}
+        actions={
+          <>
+            <LinkButton href="/kpi/daily">Daily dashboard (TA team sheets)</LinkButton>
+            {canExport && <LinkButton variant="primary" href={`/api/v1/kpi/export?period=${p.periodType}&date=${p.dateKey}`}>Export to Excel</LinkButton>}
+          </>
+        }
       />
 
       <Card className="mb-4">

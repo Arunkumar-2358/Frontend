@@ -3,7 +3,7 @@ import { requireActor } from "@/lib/session";
 import { toIstInputValue } from "@contracts/shared/dates";
 import { hasRole } from "@contracts/shared/rbac";
 import { MAIN_CATEGORIES } from "@contracts/shared/fields";
-import { PageHeader, Card, Field, Input, Select, Empty, LinkButton } from "@/components/ui";
+import { PageHeader, Card, Field, Input, Select, Empty, LinkButton, Textarea } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
 import { createClientOrgAction, createVacancyAction } from "../actions";
 import { ORG_TYPE_LABEL } from "../util";
@@ -51,6 +51,12 @@ export default async function NewVacancyPage({ searchParams }: { searchParams: P
             <Field label="Openings"><Input name="openings" type="number" min={1} step={1} defaultValue={1} /></Field>
             <Field label="Posted at (IST)" hint="Defaults to now. Before 14:00 IST counts as “added before 2 pm”.">
               <Input name="postedAt" type="datetime-local" defaultValue={toIstInputValue(new Date())} />
+            </Field>
+            <Field label="Description of the job post" className="sm:col-span-2" hint="As posted — shown to the Team 1 TA lead and Team 2 sourcer given the posting.">
+              <Textarea name="description" maxLength={4000} placeholder="e.g. Staff nurse for a 40-bed ICU, rotational shifts" />
+            </Field>
+            <Field label="Mandatory attributes" className="sm:col-span-2" hint="Must-haves for a matching CV: location, experience, registration, salary …">
+              <Textarea name="mandatoryAttributes" maxLength={2000} rows={2} placeholder="e.g. Kukatpally, Hyderabad · 1+ year ICU/PICU · registration required · ₹18–20k/month" />
             </Field>
             <div className="sm:col-span-2">
               <Submit>Create vacancy</Submit>
