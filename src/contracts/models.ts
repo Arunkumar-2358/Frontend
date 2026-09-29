@@ -47,6 +47,8 @@ export type JobStatus = "PENDING" | "QUEUED" | "RUNNING" | "DONE" | "FAILED" | "
 
 export type ClientOrgType = "GENERAL" | "EXISTING" | "FREE_TRIAL";
 
+export type ClientBillingModel = "SUBSCRIPTION" | "SUCCESS_FEE" | "FREE_TRIAL";
+
 export type VacancyStatus = "OPEN" | "PENDING" | "CLOSED";
 
 export type SubmissionDecision = "PENDING" | "SHORTLISTED" | "REJECTED";
@@ -313,6 +315,7 @@ export interface ClientOrg {
   id: string;
   name: string;
   type: ClientOrgType;
+  billingModel: ClientBillingModel | null;
   city: string | null;
   createdAt: Date;
 }

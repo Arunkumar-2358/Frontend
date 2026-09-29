@@ -1,12 +1,19 @@
 import clsx from "clsx";
 import type { DailyRow } from "@contracts";
-import { DAILY_LAYOUT, monthLabel, type DailyColumn, type DailyKpi, type DailySection } from "@contracts/shared/daily-dashboard";
+import { DAILY_COMBINED, DAILY_LAYOUT, monthLabel, type DailyColumn, type DailyKpi, type DailySection } from "@contracts/shared/daily-dashboard";
 import { api } from "@/lib/api/client";
 import { PageHeader, Card, Table, Td, Badge, Input, Select, Button, LinkButton } from "@/components/ui";
 
 export const metadata = { title: "Daily dashboard" };
 
-const SHEET_LABEL = { T1A: "TA team 1 (TA leads)", T2: "TA team 2 (sourcers)" } as const;
+const SHEET_LABEL = {
+  T1A: "TA team 1 (TA leads)",
+  T2: "TA team 2 (sourcers)",
+  T3A: "TA team 3a (general)",
+  T3B: "TA team 3b (existing clients)",
+  T3C: "TA team 3c (free-trial orgs)",
+  T3: "TA team 3 (3a + 3b consolidated)",
+} as const;
 
 const tat = (h: number | null) => (h === null ? "" : h < 48 ? `${h} hrs` : `${Math.round((h / 24) * 10) / 10} days`);
 
@@ -89,7 +96,8 @@ export default async function DailyDashboardPage({ searchParams }: { searchParam
   const sp = await searchParams;
   const d = await api("GET /v1/kpi/daily", { query: { sheet: sp.sheet, month: sp.month, user: sp.user } });
   const layout = DAILY_LAYOUT[d.sheet];
-  const who = d.subject?.name ?? "Consolidated (whole team)";
+  const combined = !!DAILY_COMBINED[d.sheet];
+  const who = d.subject?.name ?? (combined ? "Consolidated (Team 3a + 3b)" : "Consolidated (whole team)");
   const user = d.subject?.id ?? "team";
   const qs = (over: Record<string, string>) => `/kpi/daily?${new URLSearchParams({ sheet: d.sheet, month: d.month, ...(d.seesAll ? { user } : {}), ...over })}`;
 
@@ -114,7 +122,7 @@ export default async function DailyDashboardPage({ searchParams }: { searchParam
               <Select name="sheet" defaultValue={d.sheet} options={d.sheets.map((s) => ({ value: s, label: SHEET_LABEL[s] }))} className="w-auto" />
             </label>
           )}
-          {d.seesAll && (
+          {d.seesAll && !combined && (
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-600">Person</span>
               <Select name="user" defaultValue={user} options={[{ value: "team", label: "Consolidated (whole team)" }, ...d.members.map((m) => ({ value: m.id, label: m.name }))]} className="w-auto" />

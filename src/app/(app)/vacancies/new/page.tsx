@@ -5,8 +5,8 @@ import { hasRole } from "@contracts/shared/rbac";
 import { MAIN_CATEGORIES } from "@contracts/shared/fields";
 import { PageHeader, Card, Field, Input, Select, Empty, LinkButton, Textarea } from "@/components/ui";
 import { ActionForm, Submit } from "@/components/action-form";
-import { createClientOrgAction, createVacancyAction } from "../actions";
-import { ORG_TYPE_LABEL } from "../util";
+import { createClientOrgAction, createVacancyAction, setBillingModelAction } from "../actions";
+import { BILLING_MODELS, BILLING_MODEL_LABEL, ORG_TYPE_LABEL } from "../util";
 
 export const metadata = { title: "New vacancy" };
 
@@ -15,6 +15,8 @@ const ORG_TYPE_OPTIONS = [
   { value: "EXISTING", label: `${ORG_TYPE_LABEL.EXISTING} → Team 3b` },
   { value: "FREE_TRIAL", label: `${ORG_TYPE_LABEL.FREE_TRIAL} → Team 3c` },
 ];
+
+const BILLING_OPTIONS = BILLING_MODELS.map((m) => ({ value: m, label: BILLING_MODEL_LABEL[m] }));
 
 export default async function NewVacancyPage({ searchParams }: { searchParams: Promise<{ org?: string }> }) {
   const actor = await requireActor();
@@ -63,15 +65,35 @@ export default async function NewVacancyPage({ searchParams }: { searchParams: P
             </div>
           </ActionForm>
         </Card>
-        <Card title="New client organisation">
-          <p className="mb-3 text-sm text-slate-500">Not in the list? Add it here, then pick it in the intake form.</p>
-          <ActionForm action={createClientOrgAction} className="space-y-3" resetOnSuccess>
-            <Field label="Name" required><Input name="name" required /></Field>
-            <Field label="Type" required><Select name="type" required defaultValue="GENERAL" options={ORG_TYPE_OPTIONS} /></Field>
-            <Field label="City"><Input name="city" /></Field>
-            <Submit variant="secondary">Add organisation</Submit>
-          </ActionForm>
-        </Card>
+        <div className="grid content-start gap-6">
+          <Card title="New client organisation">
+            <p className="mb-3 text-sm text-slate-500">Not in the list? Add it here, then pick it in the intake form.</p>
+            <ActionForm action={createClientOrgAction} className="space-y-3" resetOnSuccess>
+              <Field label="Name" required><Input name="name" required /></Field>
+              <Field label="Type" required><Select name="type" required defaultValue="GENERAL" options={ORG_TYPE_OPTIONS} /></Field>
+              <Field label="Billing model" hint="Counted on the Team 3 dashboard. A free-trial org defaults to free trial.">
+                <Select name="billingModel" placeholder="Not set" options={BILLING_OPTIONS} />
+              </Field>
+              <Field label="City"><Input name="city" /></Field>
+              <Submit variant="secondary">Add organisation</Submit>
+            </ActionForm>
+          </Card>
+          <Card title="Client billing models">
+            <p className="mb-3 text-sm text-slate-500">Subscription, success fee or free trial — the Team 3 dashboard counts the organisations on each.</p>
+            <ActionForm action={setBillingModelAction} className="space-y-3">
+              <Field label="Client organisation" required>
+                <Select
+                  name="clientOrgId"
+                  required
+                  placeholder="Select…"
+                  options={orgs.map((o) => ({ value: o.id, label: `${o.name} · ${o.billingModel ? BILLING_MODEL_LABEL[o.billingModel] : "not set"}` }))}
+                />
+              </Field>
+              <Field label="Billing model"><Select name="billingModel" placeholder="Not set" options={BILLING_OPTIONS} /></Field>
+              <Submit variant="secondary">Save billing model</Submit>
+            </ActionForm>
+          </Card>
+        </div>
       </div>
     </>
   );

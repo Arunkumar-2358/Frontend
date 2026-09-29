@@ -1,7 +1,7 @@
 import type { VacancyStatus } from "@contracts";
 import type { Tone } from "@/components/ui";
 
-export { TEAM_LABEL, ORG_TYPE_LABEL } from "@contracts/shared/c-vacancy-labels";
+export { TEAM_LABEL, ORG_TYPE_LABEL, BILLING_MODEL_LABEL, BILLING_MODELS } from "@contracts/shared/c-vacancy-labels";
 
 /** Minutes as "95 min (1h 35m)". */
 export function fmtMinutes(m: number | null | undefined): string {

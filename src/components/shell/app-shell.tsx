@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import clsx from "clsx";
 import { ChevronDown, ChevronRight, PanelLeft, Search, X, LogOut } from "lucide-react";
 import { BrandMark } from "@/components/brand";
 import { NAV_ICONS } from "@/components/nav-icons";
 import { NotificationBell, type BellItem } from "./notification-bell";
+import { SearchTypeahead } from "./search-typeahead";
 
 export type ShellNavGroup = { group: string; items: { href: string; label: string; badge?: number }[] };
 export type ShellUser = { name: string; roleText: string; teamPill: string };
@@ -40,19 +41,6 @@ export function AppShell({
     } catch {}
   }, []);
   useEffect(() => setMobileOpen(false), [path]);
-
-  // "/" jumps to search from anywhere (unless the user is typing in a field)
-  const searchRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   const toggleCollapsed = () => {
     if (window.matchMedia("(max-width: 1023px)").matches) return setMobileOpen((v) => !v);
@@ -172,20 +160,7 @@ export function AppShell({
               </>
             )}
           </nav>
-          <form action="/search" className="mx-auto hidden w-full max-w-md min-w-40 lg:block" role="search">
-            <label className="flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-slate-500 focus-within:ring-2 focus-within:ring-brand-200">
-              <Search size={17} />
-              <input
-                ref={searchRef}
-                name="q"
-                required
-                placeholder="Search leads, vacancies, clients…"
-                aria-label="Search"
-                className="w-full bg-transparent text-sm text-ink placeholder:text-slate-500 focus:outline-none"
-              />
-              <kbd className="hidden rounded border border-slate-300 px-1.5 text-[11px] text-slate-500 xl:inline">/</kbd>
-            </label>
-          </form>
+          <SearchTypeahead />
           <Link href="/search" className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Search">
             <Search size={20} />
           </Link>

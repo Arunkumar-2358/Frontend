@@ -8,7 +8,17 @@ import { fromIstInputValue } from "@contracts/shared/dates";
 
 export async function createClientOrgAction(_: ActionState, fd: FormData): Promise<ActionState> {
   return run(async () => {
-    const { message } = await api("POST /v1/vacancies/client-orgs", { body: { name: str(fd, "name"), type: str(fd, "type"), city: str(fd, "city") } });
+    const { message } = await api("POST /v1/vacancies/client-orgs", { body: { name: str(fd, "name"), type: str(fd, "type"), city: str(fd, "city"), billingModel: str(fd, "billingModel") } });
+    revalidatePath("/vacancies/new");
+    return message;
+  });
+}
+
+export async function setBillingModelAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  return run(async () => {
+    const id = str(fd, "clientOrgId");
+    if (!id) throw new FormError("Choose a client organisation");
+    const { message } = await api("POST /v1/vacancies/client-orgs/{id}/billing-model", { params: { id }, body: { billingModel: str(fd, "billingModel") ?? "" } });
     revalidatePath("/vacancies/new");
     return message;
   });

@@ -118,7 +118,9 @@ export interface VacancyRoutes {
     response: MessageResult & { id: string };
   };
   "GET /v1/vacancies/client-orgs": { response: ClientOrg[] };
-  "POST /v1/vacancies/client-orgs": { body: { name?: string; type?: string; city?: string }; response: MessageResult & { id: string } };
+  "POST /v1/vacancies/client-orgs": { body: { name?: string; type?: string; city?: string; billingModel?: string }; response: MessageResult & { id: string } };
+  /** Set the client's billing model (Team 3 daily dashboard); "" clears it. */
+  "POST /v1/vacancies/client-orgs/{id}/billing-model": Id & { body: { billingModel?: string }; response: MessageResult };
   "GET /v1/vacancies/{id}": Id & { response: VacancyDetail };
   "POST /v1/vacancies/{id}/calibrate": Id & { response: MessageResult };
   "POST /v1/vacancies/{id}/status": Id & { body: { status?: string }; response: MessageResult };

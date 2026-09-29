@@ -1,17 +1,29 @@
 /**
- * Daily dashboard: the TA team 1 / team 2 "monthly dash board" workbooks, computed from
+ * Daily dashboard: the TA team 1 / 2 / 3 "monthly dash board" workbooks, computed from
  * CRM events instead of typed in. One row per day of the month, weekly (Mon–Sun) and
  * monthly totals, and the KPI rows — same columns and formulas as the workbooks.
  * The API fills the values; the web page and the Excel export both render from this layout.
  */
 import { IST_OFFSET_MS } from "./dates";
 
-export type DailySheet = "T1A" | "T2";
-export const DAILY_SHEETS: DailySheet[] = ["T1A", "T2"];
+export type DailySheet = "T1A" | "T2" | "T3A" | "T3B" | "T3C" | "T3";
+export const DAILY_SHEETS: DailySheet[] = ["T1A", "T2", "T3A", "T3B", "T3C", "T3"];
+
+/**
+ * Sheets that are the sum of other sheets' consolidated views, as in the Team 3 workbook,
+ * whose "Team 3 - consolidated" tab adds the 3A and 3B consolidated tabs (3C is not included).
+ */
+export const DAILY_COMBINED: Partial<Record<DailySheet, DailySheet[]>> = { T3: ["T3A", "T3B"] };
+
+/** The Team 3 sheets share one workbook (and one Excel export). */
+export const TEAM3_SHEETS: DailySheet[] = ["T3A", "T3B", "T3C", "T3"];
 
 export type DailyColumn =
-  /** a registry KPI computed for the row's day */
-  | { key: string; label: string; kind: "metric"; metric: string }
+  /**
+   * a registry KPI computed for the row's day. `agg: "period"`: week and month rows compute
+   * the metric over their whole range instead of adding up the days (snapshots and distinct counts).
+   */
+  | { key: string; label: string; kind: "metric"; metric: string; agg?: "period" }
   /** the sum of other columns in the same row (the workbook's own formulas) */
   | { key: string; label: string; kind: "sum"; of: string[] }
   /** text from the job postings given that day */
@@ -32,6 +44,46 @@ const FLAG_KPIS = (s: string): DailyKpi[] => [
   { key: `${s}.flags_closed`, under: `${s}.flags`, label: "Number of closed red flags", flags: "closed" },
   { key: `${s}.flags_days`, under: `${s}.flags`, label: "Total days taken to close the red flags", flags: "days" },
 ];
+
+/** The Team 3 "Action taken dash board" columns (B–R) for one sub-team's metric prefix. */
+function team3Sections(p: string): DailySection[] {
+  const m = (key: string, label: string, metric: string): DailyColumn => ({ key: `a.${key}`, label, kind: "metric", metric: `${p}.${metric}`, agg: "period" });
+  // "Total vacancies" in the KPI labels is the vacancies in hand: opening + newly added.
+  const inHand = ["a.opening", "a.new"];
+  return [
+    {
+      key: "a",
+      title: "For the allocated job vacancies",
+      columns: [
+        m("orgs", "Number of organisations given to you", "orgs_given"),
+        m("subscription", "Number of subscriptions in this", "orgs_subscription"),
+        m("success_fee", "Number of success fee model in this", "orgs_success_fee"),
+        m("free_trial", "Number of free trials in this", "orgs_free_trial"),
+        m("job_posts", "Number of total job posts actively doing", "job_posts_active"),
+        m("opening", "Total number of opening vacancies as on yesterday morning", "positions_opening"),
+        m("new", "Number of newly added vacancies", "positions_new"),
+        m("total", "Total vacancies", "positions_total"),
+        m("untouched", "Number of untouched vacancies", "positions_untouched"),
+        m("cvs_sent", "Number of vacancies for which sufficient matching CVs sent", "positions_cvs_sent"),
+        m("interview_confirmed", "Number of vacancies for which interviews confirmed", "positions_interview_confirmed"),
+        m("interviewed", "Number of vacancies for which interviews conducted", "positions_interviewed"),
+        m("offered", "Number of vacancies for which offer letters given", "positions_offered"),
+        m("joined", "Number of vacancies for which candidates joined", "positions_joined"),
+        m("retained_7d", "Number of vacancies for which retention of 7 days completed", "positions_retained_7d"),
+        m("retained_30d", "Number of vacancies for which retention of 30 days completed", "positions_retained_30d"),
+        m("closed", "Number of closed vacancies (post joining 30 days retention)", "positions_closed"),
+      ],
+      kpis: [
+        { key: "a.k_cvs_sent", under: "a.cvs_sent", label: "% of the vacancies for which matching CVs given over total vacancies", num: "a.cvs_sent", den: inHand, unit: "pct" },
+        { key: "a.k_interview_confirmed", under: "a.interview_confirmed", label: "% of the vacancies for which interviews confirmed over total vacancies", num: "a.interview_confirmed", den: inHand, unit: "pct" },
+        { key: "a.k_interviewed", under: "a.interviewed", label: "% of the vacancies for which interviews completed over total vacancies", num: "a.interviewed", den: inHand, unit: "pct" },
+        { key: "a.k_offered", under: "a.offered", label: "% of the vacancies for which offer letters completed over total vacancies", num: "a.offered", den: inHand, unit: "pct" },
+        { key: "a.k_joined", under: "a.joined", label: "% of the vacancies for which joinings completed over total vacancies", num: "a.joined", den: inHand, unit: "pct" },
+        { key: "a.k_retained_30d", under: "a.retained_30d", label: "% of the vacancies for which 30 days of retention completed over total vacancies", num: "a.retained_30d", den: inHand, unit: "pct" },
+      ],
+    },
+  ];
+}
 
 export const DAILY_LAYOUT: Record<DailySheet, { title: string; sections: DailySection[] }> = {
   T1A: {
@@ -142,6 +194,11 @@ export const DAILY_LAYOUT: Record<DailySheet, { title: string; sections: DailySe
       },
     ],
   },
+  T3A: { title: "TA team 3a — action taken dashboard", sections: team3Sections("t3a") },
+  T3B: { title: "TA team 3b — action taken dashboard", sections: team3Sections("t3b") },
+  T3C: { title: "TA team 3c — action taken dashboard", sections: team3Sections("t3c") },
+  // Values come from adding the 3A and 3B views (DAILY_COMBINED); the metric prefix is unused.
+  T3: { title: "TA team 3 — action taken dashboard (3a + 3b)", sections: team3Sections("t3a") },
 };
 
 /** Registry metrics a sheet's layout needs (computed per day). */

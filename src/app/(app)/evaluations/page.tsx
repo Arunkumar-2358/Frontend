@@ -1,48 +1,80 @@
-import Link from "next/link";
 import { api } from "@/lib/api/client";
 import { requireActor } from "@/lib/session";
-import { formatDateTime } from "@contracts/shared/dates";
+import { formatDate } from "@contracts/shared/dates";
 import { hasRole } from "@contracts/shared/rbac";
-import { PageHeader, Card, Table, Td, Pagination, LinkButton } from "@/components/ui";
+import { PageHeader, Card, Badge, Empty, LinkButton } from "@/components/ui";
+import { toTree } from "./tree";
 
-export const metadata = { title: "Scorecards" };
+export const metadata = { title: "Scorecard templates" };
 
-export default async function EvaluationsPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+export default async function TemplatesPage({ searchParams }: { searchParams: Promise<{ saved?: string }> }) {
   const actor = await requireActor();
   const sp = await searchParams;
-  const { total, page, pageSize: PAGE_SIZE, evaluations: evals } = await api("GET /v1/evaluations", { query: { page: Math.max(1, Math.floor(Number(sp.page)) || 1) } });
-  const canScore = hasRole(actor, "admin", "recruiter", "team3_leader");
-  const canEditTemplates = hasRole(actor, "admin", "team3_leader");
+  const canEdit = hasRole(actor, "admin", "team3_leader");
+  const templates = await api("GET /v1/evaluation-templates");
 
   return (
     <>
       <PageHeader
-        title="Scorecards"
-        subtitle="Weighted interview evaluation — compare up to 3 candidates side by side"
+        title="Scorecard templates"
+        subtitle="Criteria and sub-criteria with weights — weights must add up to exactly 100%"
         actions={
           <>
-            <LinkButton href="/evaluations/templates">{canEditTemplates ? "Manage templates" : "Templates"}</LinkButton>
-            {canScore && <LinkButton href="/evaluations/new" variant="primary">+ New evaluation</LinkButton>}
+            <LinkButton href="/evaluations">← Scorecards</LinkButton>
+            {canEdit && <LinkButton href="/evaluations/templates/new" variant="primary">+ New template</LinkButton>}
           </>
         }
       />
-      <Card pad={false}>
-        <Table head={["Title", "Vacancy", "Template", "Candidates", "Created"]} empty="No evaluations yet.">
-          {evals.map((e) => (
-            <tr key={e.id}>
-              <Td><Link className="font-medium text-brand-600 hover:underline" href={`/evaluations/${e.id}`}>{e.title}</Link></Td>
-              <Td>{e.vacancy ? <Link className="hover:underline" href={`/vacancies/${e.vacancy.id}`}>{e.vacancy.code} · {e.vacancy.title}</Link> : <span className="text-slate-300">—</span>}</Td>
-              <Td>{e.template.name}</Td>
-              <Td className="text-xs">{e.candidates.map((c) => `${c.candidate.name} (${c.candidate.candidateCode})`).join(", ")}</Td>
-              <Td className="whitespace-nowrap">
-                {formatDateTime(e.createdAt)}
-                {e.createdById && <div className="text-xs text-slate-400">{e.creatorName}</div>}
-              </Td>
-            </tr>
-          ))}
-        </Table>
-        <Pagination page={page} pageSize={PAGE_SIZE} total={total} hrefFor={(p) => `/evaluations?page=${p}`} />
-      </Card>
+      {sp.saved && <p role="status" className="mb-4 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Template saved.</p>}
+      {!templates.length ? (
+        <Empty title="No templates yet">{canEdit ? "Create one — the default criteria from the grading sheet are pre-filled." : "Ask an admin to create one."}</Empty>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {templates.map((t) => {
+            const tree = toTree(t.criteria);
+            const total = t.criteria.filter((c) => !t.criteria.some((x) => x.parentId === c.id)).reduce((a, c) => a + c.weightPct, 0);
+            return (
+              <Card
+                key={t.id}
+                title={
+                  <span className="inline-flex items-center gap-2">
+                    {t.name}
+                    {!t.active && <Badge>inactive</Badge>}
+                    {sp.saved === t.id && <Badge tone="green">saved</Badge>}
+                  </span>
+                }
+                actions={canEdit ? <LinkButton size="sm" href={`/evaluations/templates/${t.id}`}>{t._count.evaluations ? "View / copy" : "Edit"}</LinkButton> : undefined}
+              >
+                {t.description && <p className="mb-3 text-sm text-slate-500">{t.description}</p>}
+                <ul className="space-y-1 text-sm">
+                  {tree.map((c) => (
+                    <li key={c.id}>
+                      <div className="flex justify-between gap-2">
+                        <span className={c.children.length ? "font-medium" : ""}>{c.name}</span>
+                        <span className="tabular-nums text-slate-500">{c.weightPct}%</span>
+                      </div>
+                      {c.children.length > 0 && (
+                        <ul className="mt-0.5 space-y-0.5 pl-5 text-slate-600">
+                          {c.children.map((ch) => (
+                            <li key={ch.id} className="flex justify-between gap-2">
+                              <span>↳ {ch.name}</span>
+                              <span className="tabular-nums text-slate-400">{ch.weightPct}%</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex justify-between border-t border-slate-100 pt-2 text-xs text-slate-500">
+                  <span>{t._count.evaluations} evaluation(s) · updated {formatDate(t.updatedAt)}</span>
+                  <span className={Math.abs(total - 100) < 1e-9 ? "font-medium text-emerald-600" : "font-medium text-red-600"}>Total {Math.round(total * 100) / 100}%</span>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }
